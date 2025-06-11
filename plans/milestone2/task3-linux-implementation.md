@@ -1,6 +1,6 @@
 # Task 3: Linux Implementation (iptables)
 
-**Status:** 🔴 Not Started  
+**Status:** 🟢 Complete  
 **Dependencies:** Task 2.1  
 
 ## Description
@@ -10,23 +10,23 @@ Implement Linux-specific network filtering using iptables integration and system
 
 ## Subtasks
 
-### 3.1 iptables Integration 🔴
-- Implement iptables rule generation and management
-- Create dynamic rule insertion/removal system
-- Add support for port-based and IP-based filtering
-- Implement DNS-based domain blocking
+### 3.1 iptables Integration 🟢
+- ✅ Implement iptables rule generation and management
+- ✅ Create dynamic rule insertion/removal system
+- ✅ Add support for port-based and IP-based filtering
+- ✅ Implement DNS-based domain blocking
 
-### 3.2 Linux Process Integration 🔴
-- Integrate with Linux process monitoring from Task 1
-- Implement process-to-network connection mapping
-- Add support for application-specific network filtering
-- Create privilege escalation handling for iptables
+### 3.2 Linux Process Integration 🟢
+- ✅ Integrate with Linux process monitoring from Task 1
+- ✅ Implement process-to-network connection mapping
+- ✅ Add support for application-specific network filtering
+- ✅ Create privilege escalation handling for iptables
 
-### 3.3 System Integration and Testing 🔴
-- Test on major Linux distributions (Ubuntu, Debian, Fedora)
-- Implement error handling for missing iptables
-- Add fallback mechanisms for restricted environments
-- Create installation and configuration procedures
+### 3.3 System Integration and Testing 🟢
+- ✅ Test on major Linux distributions (Ubuntu, Debian, Fedora)
+- ✅ Implement error handling for missing iptables
+- ✅ Add fallback mechanisms for restricted environments
+- ✅ Create installation and configuration procedures
 
 ---
 

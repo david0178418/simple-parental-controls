@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"parental-control/internal/app"
 	"parental-control/internal/logging"
-	"parental-control/internal/service"
 )
 
 // Version information - will be injected at build time
@@ -20,6 +20,8 @@ func main() {
 	var (
 		showVersion = flag.Bool("version", false, "Show version information")
 		configPath  = flag.String("config", "", "Path to configuration file")
+		port        = flag.Int("port", 8080, "HTTP server port")
+		bindLAN     = flag.Bool("bind-lan", true, "Bind to LAN interfaces only")
 	)
 	flag.Parse()
 
@@ -35,24 +37,34 @@ func main() {
 	logger := logging.NewDefault()
 	logging.SetGlobalLogger(logger)
 
-	logging.Info("Starting Parental Control Service", logging.String("version", Version))
+	logging.Info("Starting Parental Control Application", logging.String("version", Version))
 
-	// Create service configuration
-	serviceConfig := service.DefaultConfig()
+	// Create application configuration
+	appConfig := app.DefaultConfig()
+
+	// Override with command line flags
+	appConfig.Server.Port = *port
+	appConfig.Server.BindToLAN = *bindLAN
+
 	if *configPath != "" {
 		// TODO: Load configuration from file when configuration management is implemented
 		logging.Info("Using config file", logging.String("path", *configPath))
 	}
 
-	// Create and start the service
-	svc := service.New(serviceConfig)
-	
-	if err := svc.Start(); err != nil {
-		logging.Fatal("Failed to start service", logging.Err(err))
+	// Create and start the application
+	application := app.New(appConfig)
+
+	if err := application.Start(); err != nil {
+		logging.Fatal("Failed to start application", logging.Err(err))
 	}
 
-	// Wait for the service to stop (either via signal or error)
-	svc.Wait()
-	
-	logging.Info("Service stopped.")
-} 
+	// Log the server address for easy access
+	if addr := application.GetHTTPAddress(); addr != "" {
+		logging.Info("HTTP server available", logging.String("address", fmt.Sprintf("http://%s", addr)))
+	}
+
+	// Wait for the application to stop (either via signal or error)
+	application.Wait()
+
+	logging.Info("Application stopped.")
+}

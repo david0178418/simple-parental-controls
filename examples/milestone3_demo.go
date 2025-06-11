@@ -38,7 +38,7 @@ func (d *DemoRepositoryManager) getNextID() int {
 
 // This is a demonstration of how the Milestone 3 services work together
 func main() {
-	fmt.Println("=== Milestone 3: Rule Management System Demo ===\n")
+	fmt.Println("=== Milestone 3: Rule Management System Demo ===")
 
 	// Initialize logger
 	logger := logging.NewDefault()

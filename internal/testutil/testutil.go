@@ -116,7 +116,7 @@ func (tc *TestConfig) SaveToFile(t *testing.T) {
 
 // TestLogger provides test logging utilities
 type TestLogger struct {
-	Logger *logging.Logger
+	Logger logging.Logger
 	Level  string
 }
 

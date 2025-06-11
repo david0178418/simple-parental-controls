@@ -42,8 +42,18 @@ func (l LogLevel) String() string {
 	}
 }
 
-// Logger provides structured logging functionality
-type Logger struct {
+// Logger interface defines the contract for logging implementations
+type Logger interface {
+	Debug(msg string, fields ...Field)
+	Info(msg string, fields ...Field)
+	Warn(msg string, fields ...Field)
+	Error(msg string, fields ...Field)
+	Fatal(msg string, fields ...Field)
+	SetLevel(level LogLevel)
+}
+
+// ConcreteLogger provides structured logging functionality
+type ConcreteLogger struct {
 	level  LogLevel
 	logger *log.Logger
 }
@@ -55,19 +65,19 @@ type Config struct {
 }
 
 // New creates a new logger with the given configuration
-func New(config Config) *Logger {
+func New(config Config) *ConcreteLogger {
 	if config.Output == nil {
 		config.Output = os.Stdout
 	}
 
-	return &Logger{
+	return &ConcreteLogger{
 		level:  config.Level,
 		logger: log.New(config.Output, "", 0), // No default flags, we'll format ourselves
 	}
 }
 
 // NewDefault creates a logger with default configuration
-func NewDefault() *Logger {
+func NewDefault() *ConcreteLogger {
 	return New(Config{
 		Level:  INFO,
 		Output: os.Stdout,
@@ -75,55 +85,55 @@ func NewDefault() *Logger {
 }
 
 // SetLevel changes the minimum log level
-func (l *Logger) SetLevel(level LogLevel) {
+func (l *ConcreteLogger) SetLevel(level LogLevel) {
 	l.level = level
 }
 
 // Debug logs a debug message
-func (l *Logger) Debug(msg string, fields ...Field) {
+func (l *ConcreteLogger) Debug(msg string, fields ...Field) {
 	if l.level <= DEBUG {
 		l.log(DEBUG, msg, fields...)
 	}
 }
 
 // Info logs an info message
-func (l *Logger) Info(msg string, fields ...Field) {
+func (l *ConcreteLogger) Info(msg string, fields ...Field) {
 	if l.level <= INFO {
 		l.log(INFO, msg, fields...)
 	}
 }
 
 // Warn logs a warning message
-func (l *Logger) Warn(msg string, fields ...Field) {
+func (l *ConcreteLogger) Warn(msg string, fields ...Field) {
 	if l.level <= WARN {
 		l.log(WARN, msg, fields...)
 	}
 }
 
 // Error logs an error message
-func (l *Logger) Error(msg string, fields ...Field) {
+func (l *ConcreteLogger) Error(msg string, fields ...Field) {
 	if l.level <= ERROR {
 		l.log(ERROR, msg, fields...)
 	}
 }
 
 // Fatal logs a fatal message and exits the program
-func (l *Logger) Fatal(msg string, fields ...Field) {
+func (l *ConcreteLogger) Fatal(msg string, fields ...Field) {
 	l.log(FATAL, msg, fields...)
 	os.Exit(1)
 }
 
 // log formats and writes the log message
-func (l *Logger) log(level LogLevel, msg string, fields ...Field) {
+func (l *ConcreteLogger) log(level LogLevel, msg string, fields ...Field) {
 	timestamp := time.Now().Format("2006-01-02T15:04:05.000Z07:00")
-	
+
 	logLine := timestamp + " [" + level.String() + "] " + msg
-	
+
 	// Append fields if any
 	for _, field := range fields {
 		logLine += " " + field.String()
 	}
-	
+
 	l.logger.Println(logLine)
 }
 
@@ -180,15 +190,15 @@ func formatValue(value interface{}) string {
 }
 
 // Global logger instance
-var globalLogger = NewDefault()
+var globalLogger *ConcreteLogger = NewDefault()
 
 // SetGlobalLogger sets the global logger instance
-func SetGlobalLogger(logger *Logger) {
+func SetGlobalLogger(logger *ConcreteLogger) {
 	globalLogger = logger
 }
 
 // GetGlobalLogger returns the global logger instance
-func GetGlobalLogger() *Logger {
+func GetGlobalLogger() *ConcreteLogger {
 	return globalLogger
 }
 
@@ -211,4 +221,4 @@ func Error(msg string, fields ...Field) {
 
 func Fatal(msg string, fields ...Field) {
 	globalLogger.Fatal(msg, fields...)
-} 
+}

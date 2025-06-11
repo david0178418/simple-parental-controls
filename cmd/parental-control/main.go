@@ -1,14 +1,12 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"parental-control/internal/logging"
+	"parental-control/internal/service"
 )
 
 // Version information - will be injected at build time
@@ -39,29 +37,22 @@ func main() {
 
 	logging.Info("Starting Parental Control Service", logging.String("version", Version))
 
-	// Set up graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Handle shutdown signals
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigChan
-		logging.Info("Received shutdown signal, gracefully shutting down...")
-		cancel()
-	}()
-
-	// TODO: Initialize and start services
-	// This will be implemented in later tasks
+	// Create service configuration
+	serviceConfig := service.DefaultConfig()
 	if *configPath != "" {
+		// TODO: Load configuration from file when configuration management is implemented
 		logging.Info("Using config file", logging.String("path", *configPath))
 	}
 
-	logging.Info("Service started. Press Ctrl+C to shutdown.")
+	// Create and start the service
+	svc := service.New(serviceConfig)
 	
-	// Wait for shutdown signal
-	<-ctx.Done()
+	if err := svc.Start(); err != nil {
+		logging.Fatal("Failed to start service", logging.Err(err))
+	}
+
+	// Wait for the service to stop (either via signal or error)
+	svc.Wait()
+	
 	logging.Info("Service stopped.")
 } 

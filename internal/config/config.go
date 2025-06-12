@@ -618,3 +618,27 @@ func parseIntFromEnv(val string) (int, error) {
 
 	return result, nil
 }
+
+// DefaultSecurityConfig returns default security configuration
+func DefaultSecurityConfig() SecurityConfig {
+	return SecurityConfig{
+		EnableAuth:            false, // Disabled by default for easier setup
+		AdminPassword:         "",
+		SessionSecret:         "",
+		SessionTimeout:        24 * time.Hour,
+		MaxFailedAttempts:     5,
+		LockoutDuration:       15 * time.Minute,
+		BcryptCost:            12, // Good balance of security and performance
+		MinPasswordLength:     8,
+		RequireUppercase:      true,
+		RequireLowercase:      true,
+		RequireNumbers:        true,
+		RequireSpecialChars:   false, // Optional for easier setup
+		PasswordHistorySize:   5,
+		PasswordExpireDays:    0,                   // No expiration by default
+		LoginRateLimit:        10,                  // 10 attempts per minute
+		RememberMeDuration:    30 * 24 * time.Hour, // 30 days
+		AllowMultipleSessions: false,
+		MaxSessions:           1,
+	}
+}

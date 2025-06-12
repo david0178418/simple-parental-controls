@@ -1,7 +1,22 @@
 package auth
 
 import (
+	"errors"
 	"time"
+)
+
+// Common errors
+var (
+	ErrUserNotFound       = errors.New("user not found")
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrUserExists         = errors.New("user already exists")
+	ErrInvalidSession     = errors.New("invalid session")
+	ErrSessionExpired     = errors.New("session expired")
+	ErrSessionNotFound    = errors.New("session not found")
+	ErrAccountLocked      = errors.New("account locked")
+	ErrRateLimitExceeded  = errors.New("rate limit exceeded")
+	ErrPasswordTooWeak    = errors.New("password does not meet requirements")
+	ErrPasswordReused     = errors.New("password was recently used")
 )
 
 // User represents an authenticated user account
@@ -35,6 +50,23 @@ func (u *User) PasswordExpired(expireDays int) bool {
 	}
 	expireDate := u.PasswordChangedAt.AddDate(0, 0, expireDays)
 	return time.Now().After(expireDate)
+}
+
+// AuthUser interface implementation for server package compatibility
+func (u *User) GetID() int {
+	return u.ID
+}
+
+func (u *User) GetUsername() string {
+	return u.Username
+}
+
+func (u *User) GetEmail() string {
+	return u.Email
+}
+
+func (u *User) HasAdminRole() bool {
+	return u.IsAdmin
 }
 
 // UserPasswordHistory tracks password history for a user
@@ -76,6 +108,15 @@ func (s *Session) IsExpired() bool {
 // IsValid returns true if the session is active and not expired
 func (s *Session) IsValid() bool {
 	return s.IsActive && !s.IsExpired()
+}
+
+// AuthSession interface implementation for server package compatibility
+func (s *Session) GetID() string {
+	return s.ID
+}
+
+func (s *Session) GetUserID() int {
+	return s.UserID
 }
 
 // SecurityEvent represents a security-related event for auditing

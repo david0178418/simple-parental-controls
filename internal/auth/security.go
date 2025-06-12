@@ -263,11 +263,11 @@ func (ss *SecurityService) ValidateSession(sessionID string) (*User, error) {
 
 	session, exists := ss.sessions[sessionID]
 	if !exists {
-		return nil, fmt.Errorf("session not found")
+		return nil, ErrSessionNotFound
 	}
 
 	if !session.IsValid() {
-		return nil, fmt.Errorf("session is invalid or expired")
+		return nil, ErrInvalidSession
 	}
 
 	// Find user
@@ -277,7 +277,20 @@ func (ss *SecurityService) ValidateSession(sessionID string) (*User, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("user not found for session")
+	return nil, ErrUserNotFound
+}
+
+// GetSession retrieves a session by ID
+func (ss *SecurityService) GetSession(sessionID string) (*Session, error) {
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+
+	session, exists := ss.sessions[sessionID]
+	if !exists {
+		return nil, ErrSessionNotFound
+	}
+
+	return session, nil
 }
 
 // RevokeSession revokes a specific session

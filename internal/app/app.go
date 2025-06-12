@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"parental-control/internal/auth"
+	"parental-control/internal/config"
 	"parental-control/internal/logging"
 	"parental-control/internal/server"
 	"parental-control/internal/service"
@@ -12,25 +14,59 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	Service service.Config
-	Server  server.Config
+	Service  service.Config
+	Server   server.Config
+	Security config.SecurityConfig
 }
 
 // DefaultConfig returns application configuration with sensible defaults
 func DefaultConfig() Config {
 	return Config{
-		Service: service.DefaultConfig(),
-		Server:  server.DefaultConfig(),
+		Service:  service.DefaultConfig(),
+		Server:   server.DefaultConfig(),
+		Security: config.DefaultSecurityConfig(),
 	}
+}
+
+// SecurityServiceAdapter adapts auth.SecurityService to implement server.AuthService interface
+type SecurityServiceAdapter struct {
+	securityService *auth.SecurityService
+}
+
+// NewSecurityServiceAdapter creates a new adapter
+func NewSecurityServiceAdapter(securityService *auth.SecurityService) *SecurityServiceAdapter {
+	return &SecurityServiceAdapter{
+		securityService: securityService,
+	}
+}
+
+// ValidateSession validates a session and returns the user
+func (a *SecurityServiceAdapter) ValidateSession(sessionID string) (server.AuthUser, error) {
+	user, err := a.securityService.ValidateSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+// GetSession retrieves a session by ID
+func (a *SecurityServiceAdapter) GetSession(sessionID string) (server.AuthSession, error) {
+	session, err := a.securityService.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return session, nil
 }
 
 // App coordinates the service and HTTP server
 type App struct {
-	config     Config
-	service    *service.Service
-	httpServer *server.Server
-	apiServer  *server.SimpleAPIServer
-	mu         sync.RWMutex
+	config          Config
+	service         *service.Service
+	httpServer      *server.Server
+	apiServer       *server.SimpleAPIServer
+	authAPIServer   *server.AuthAPIServer
+	securityService *auth.SecurityService
+	mu              sync.RWMutex
 }
 
 // New creates a new application instance
@@ -47,6 +83,17 @@ func (a *App) Start() error {
 
 	logging.Info("Starting application")
 
+	// Initialize security service
+	authConfig := auth.ConvertSecurityConfig(a.config.Security)
+	a.securityService = auth.NewSecurityService(authConfig)
+
+	// Create initial admin if enabled
+	if a.config.Security.EnableAuth {
+		if err := a.securityService.CreateInitialAdmin("admin", a.config.Security.AdminPassword, "admin@example.com"); err != nil {
+			logging.Warn("Failed to create initial admin", logging.Err(err))
+		}
+	}
+
 	// Initialize service
 	a.service = service.New(a.config.Service)
 	if err := a.service.Start(); err != nil {
@@ -56,9 +103,16 @@ func (a *App) Start() error {
 	// Initialize HTTP server
 	a.httpServer = server.New(a.config.Server)
 
-	// Initialize API server
+	// Initialize API servers
 	a.apiServer = server.NewSimpleAPIServer()
 	a.apiServer.RegisterRoutes(a.httpServer)
+
+	// Initialize auth API server if authentication is enabled
+	if a.config.Security.EnableAuth {
+		authServiceAdapter := NewSecurityServiceAdapter(a.securityService)
+		a.authAPIServer = server.NewAuthAPIServer(authServiceAdapter)
+		a.authAPIServer.RegisterRoutes(a.httpServer)
+	}
 
 	// Start HTTP server
 	if err := a.httpServer.Start(); err != nil {
@@ -67,7 +121,8 @@ func (a *App) Start() error {
 	}
 
 	logging.Info("Application started successfully",
-		logging.String("http_address", a.httpServer.GetAddress()))
+		logging.String("http_address", a.httpServer.GetAddress()),
+		logging.Bool("auth_enabled", a.config.Security.EnableAuth))
 
 	return nil
 }
@@ -134,6 +189,13 @@ func (a *App) GetStatus() map[string]interface{} {
 		}
 	}
 
+	if a.securityService != nil {
+		status["auth"] = map[string]interface{}{
+			"enabled": a.config.Security.EnableAuth,
+			"stats":   a.securityService.GetSecurityStats(),
+		}
+	}
+
 	return status
 }
 
@@ -189,4 +251,11 @@ func (a *App) GetHTTPAddress() string {
 		return a.httpServer.GetAddress()
 	}
 	return ""
+}
+
+// GetSecurityService returns the security service (for admin/debugging purposes)
+func (a *App) GetSecurityService() *auth.SecurityService {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.securityService
 }

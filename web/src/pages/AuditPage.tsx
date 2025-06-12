@@ -13,20 +13,12 @@ import {
   FormControl,
   InputLabel,
   Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TablePagination,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  IconButton,
   Alert,
-  Tooltip,
   Badge,
   Menu,
   ListItem,
@@ -60,6 +52,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { apiClient, ApiError } from '../services/api';
 import { AuditLog, AuditLogFilters, ActionType, TargetType } from '../types/api';
+import ResponsiveTable from '../components/ResponsiveTable';
 
 interface FilterFormData extends AuditLogFilters {
   start_time?: string;
@@ -575,119 +568,152 @@ function AuditPage() {
 
         {/* Audit Logs Table */}
         <Paper sx={{ width: '100%' }}>
-          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <Box sx={{ 
+            p: { xs: 2, sm: 3 }, 
+            borderBottom: 1, 
+            borderColor: 'divider',
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            justifyContent: 'space-between',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            gap: { xs: 1, sm: 0 },
+          }}>
             <Typography variant="h6">
               Audit Events
               {!loading && (
-                <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1, display: { xs: 'block', sm: 'inline' } }}>
                   ({auditLogs.length} events)
                 </Typography>
               )}
             </Typography>
+            
+            {/* Mobile action buttons */}
+            <Box sx={{ 
+              display: { xs: 'flex', sm: 'none' },
+              gap: 1,
+              width: '100%',
+              justifyContent: 'flex-end',
+            }}>
+              <Button
+                startIcon={<Refresh />}
+                onClick={() => void loadAuditLogs()}
+                disabled={loading}
+                variant="outlined"
+                size="small"
+              >
+                Refresh
+              </Button>
+              <Button
+                startIcon={<Download />}
+                onClick={(e) => setExportMenuAnchor(e.currentTarget)}
+                variant="outlined"
+                size="small"
+              >
+                Export
+              </Button>
+            </Box>
           </Box>
 
           {loading && <LinearProgress />}
 
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Timestamp</TableCell>
-                  <TableCell>Event Type</TableCell>
-                  <TableCell>Target</TableCell>
-                  <TableCell>Action</TableCell>
-                  <TableCell>Rule</TableCell>
-                  <TableCell>Details</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {auditLogs.length === 0 && !loading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                      <Typography variant="body2" color="text.secondary">
-                        No audit logs found. Try adjusting your filters or check back later.
+          {/* Enhanced Mobile/Desktop Table */}
+          <Box sx={{ p: { xs: 1, sm: 2 } }}>
+            <ResponsiveTable
+              columns={[
+                {
+                  id: 'timestamp',
+                  label: 'Timestamp',
+                  mobileLabel: 'Time',
+                  format: (value) => (
+                    <Typography variant="body2">
+                      {formatTimestamp(String(value))}
+                    </Typography>
+                  ),
+                },
+                {
+                  id: 'event_type',
+                  label: 'Event Type',
+                  mobileLabel: 'Event',
+                  format: (value) => (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {getEventTypeIcon(String(value))}
+                      <Typography variant="body2">
+                        {String(value).replace('_', ' ')}
                       </Typography>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  auditLogs.map((log) => (
-                    <TableRow 
-                      key={log.id} 
-                      hover 
-                      sx={{ cursor: 'pointer' }}
-                      onClick={() => handleLogClick(log)}
+                    </Box>
+                  ),
+                },
+                {
+                  id: 'target_value',
+                  label: 'Target',
+                                     format: (value, row) => (
+                     <Box>
+                       <Typography variant="body2" fontWeight="medium">
+                         {String(value)}
+                       </Typography>
+                       <Chip 
+                         label={String((row as unknown as AuditLog).target_type)} 
+                         size="small" 
+                         variant="outlined"
+                         sx={{ mt: 0.5 }}
+                       />
+                     </Box>
+                   ),
+                },
+                {
+                  id: 'action',
+                  label: 'Action',
+                  format: (value) => (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {getActionIcon(value as ActionType)}
+                      <Chip 
+                        label={String(value)}
+                        color={getActionColor(value as ActionType)}
+                        size="small"
+                      />
+                    </Box>
+                  ),
+                },
+                {
+                  id: 'rule_info',
+                  label: 'Rule',
+                  hideOnMobile: true,
+                                     format: (_, row) => {
+                     const log = row as unknown as AuditLog;
+                     return log.rule_type ? (
+                       <Typography variant="body2">
+                         {log.rule_type} #{log.rule_id}
+                       </Typography>
+                     ) : null;
+                   },
+                },
+                {
+                  id: 'details',
+                  label: 'Details',
+                  hideOnMobile: true,
+                  format: (value) => (
+                    <Typography 
+                      variant="body2" 
+                      sx={{ 
+                        maxWidth: 200, 
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
                     >
-                      <TableCell>
-                        <Typography variant="body2">
-                          {formatTimestamp(log.timestamp)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          {getEventTypeIcon(log.event_type)}
-                          <Typography variant="body2" sx={{ ml: 1 }}>
-                            {log.event_type.replace('_', ' ')}
-                          </Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Box>
-                          <Typography variant="body2" fontWeight="medium">
-                            {log.target_value}
-                          </Typography>
-                          <Chip 
-                            label={log.target_type} 
-                            size="small" 
-                            variant="outlined"
-                            sx={{ mt: 0.5 }}
-                          />
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          {getActionIcon(log.action)}
-                          <Chip 
-                            label={log.action}
-                            color={getActionColor(log.action)}
-                            size="small"
-                            sx={{ ml: 1 }}
-                          />
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        {log.rule_type && (
-                          <Typography variant="body2">
-                            {log.rule_type} #{log.rule_id}
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Typography 
-                          variant="body2" 
-                          sx={{ 
-                            maxWidth: 200, 
-                            overflow: 'hidden', 
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {log.details}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Tooltip title="View details">
-                          <IconButton size="small">
-                            <Info />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                      {String(value)}
+                    </Typography>
+                  ),
+                },
+              ]}
+                             rows={auditLogs.map((log) => ({
+                 ...log,
+                 rule_info: log.rule_type ? `${log.rule_type} #${log.rule_id}` : '',
+               }))}
+                                            onRowClick={(row) => handleLogClick(row as unknown as AuditLog)}
+               emptyMessage="No audit logs found. Try adjusting your filters or check back later."
+            />
+          </Box>
 
           <TablePagination
             rowsPerPageOptions={[10, 25, 50, 100]}
@@ -697,6 +723,19 @@ function AuditPage() {
             page={page}
             onPageChange={handlePageChange}
             onRowsPerPageChange={handleRowsPerPageChange}
+            sx={{
+              borderTop: 1,
+              borderColor: 'divider',
+              '& .MuiTablePagination-toolbar': {
+                px: { xs: 1, sm: 2 },
+              },
+              '& .MuiTablePagination-selectLabel': {
+                display: { xs: 'none', sm: 'block' },
+              },
+              '& .MuiTablePagination-displayedRows': {
+                fontSize: { xs: '0.75rem', sm: '0.875rem' },
+              },
+            }}
           />
         </Paper>
 

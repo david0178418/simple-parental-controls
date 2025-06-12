@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -53,6 +54,8 @@ func (ah *AuthHandlers) RegisterRoutes(srv *server.Server) {
 	srv.AddHandler("/api/v1/auth/me", protectedMiddleware.ThenFunc(ah.handleMe))
 	srv.AddHandler("/api/v1/auth/password/change", protectedMiddleware.ThenFunc(ah.handlePasswordChange))
 	srv.AddHandler("/api/v1/auth/sessions", protectedMiddleware.ThenFunc(ah.handleSessions))
+	srv.AddHandler("/api/v1/auth/sessions/refresh", protectedMiddleware.ThenFunc(ah.handleSessionRefresh))
+	srv.AddHandler("/api/v1/auth/sessions/revoke", protectedMiddleware.ThenFunc(ah.handleSessionRevoke))
 
 	// Admin-only endpoints
 	adminMiddleware := server.NewMiddlewareChain(
@@ -68,6 +71,8 @@ func (ah *AuthHandlers) RegisterRoutes(srv *server.Server) {
 
 	srv.AddHandler("/api/v1/auth/users", adminMiddleware.ThenFunc(ah.handleUsers))
 	srv.AddHandler("/api/v1/auth/security/stats", adminMiddleware.ThenFunc(ah.handleSecurityStats))
+	srv.AddHandler("/api/v1/auth/sessions/admin", adminMiddleware.ThenFunc(ah.handleAdminSessions))
+	srv.AddHandler("/api/v1/auth/sessions/analytics", adminMiddleware.ThenFunc(ah.handleSessionAnalytics))
 	srv.AddHandler("/api/v1/auth/setup", authMiddleware.ThenFunc(ah.handleInitialSetup))
 }
 
@@ -275,22 +280,210 @@ func (ah *AuthHandlers) handleInitialSetup(w http.ResponseWriter, r *http.Reques
 
 // handleSessions returns active sessions for the current user
 func (ah *AuthHandlers) handleSessions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		ah.handleGetUserSessions(w, r)
+	case http.MethodDelete:
+		ah.handleRevokeAllUserSessions(w, r)
+	default:
+		server.WriteErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+// handleGetUserSessions returns all sessions for the current user
+func (ah *AuthHandlers) handleGetUserSessions(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*User)
+	currentSessionID := ah.getCurrentSessionID(r)
+
+	sessionList, err := ah.securityService.GetUserSessionsInfo(user.ID, currentSessionID)
+	if err != nil {
+		logging.Error("Failed to get user sessions", logging.Err(err))
+		server.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve sessions")
+		return
+	}
+
+	server.WriteJSONResponse(w, http.StatusOK, sessionList)
+}
+
+// handleRevokeAllUserSessions revokes all sessions for the current user except current
+func (ah *AuthHandlers) handleRevokeAllUserSessions(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*User)
+	currentSessionID := ah.getCurrentSessionID(r)
+
+	// Get all user sessions
+	sessions, err := ah.securityService.GetUserSessions(user.ID)
+	if err != nil {
+		logging.Error("Failed to get user sessions", logging.Err(err))
+		server.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve sessions")
+		return
+	}
+
+	// Revoke all except current session
+	revokedCount := 0
+	for _, session := range sessions {
+		if session.ID != currentSessionID {
+			if err := ah.securityService.RevokeSession(session.ID); err != nil {
+				logging.Warn("Failed to revoke session",
+					logging.String("session_id", session.ID),
+					logging.Err(err))
+			} else {
+				revokedCount++
+			}
+		}
+	}
+
+	server.WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"success":       true,
+		"message":       fmt.Sprintf("Revoked %d sessions", revokedCount),
+		"revoked_count": revokedCount,
+	})
+}
+
+// handleSessionRefresh extends the current session's lifetime
+func (ah *AuthHandlers) handleSessionRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		server.WriteErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	currentSessionID := ah.getCurrentSessionID(r)
+	if currentSessionID == "" {
+		server.WriteErrorResponse(w, http.StatusBadRequest, "No session found")
+		return
+	}
+
+	// Extend session by the configured session timeout duration
+	extendBy := ah.securityService.config.SessionTimeout
+	if err := ah.securityService.RefreshSession(currentSessionID, extendBy); err != nil {
+		logging.Error("Failed to refresh session", logging.Err(err))
+		server.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to refresh session")
+		return
+	}
+
+	// Get updated session info
+	session, err := ah.securityService.GetSession(currentSessionID)
+	if err != nil {
+		logging.Error("Failed to get refreshed session", logging.Err(err))
+		server.WriteErrorResponse(w, http.StatusInternalServerError, "Session refreshed but failed to get updated info")
+		return
+	}
+
+	server.WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"success":    true,
+		"message":    "Session refreshed successfully",
+		"expires_at": session.ExpiresAt,
+	})
+}
+
+// handleSessionRevoke revokes a specific session
+func (ah *AuthHandlers) handleSessionRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		server.WriteErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req struct {
+		SessionID string `json:"session_id" binding:"required"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		server.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	user := r.Context().Value("user").(*User)
+	currentSessionID := ah.getCurrentSessionID(r)
+
+	// Verify the session belongs to the current user
+	session, err := ah.securityService.GetSession(req.SessionID)
+	if err != nil {
+		server.WriteErrorResponse(w, http.StatusNotFound, "Session not found")
+		return
+	}
+
+	if session.UserID != user.ID {
+		server.WriteErrorResponse(w, http.StatusForbidden, "Session does not belong to you")
+		return
+	}
+
+	// Don't allow revoking current session
+	if req.SessionID == currentSessionID {
+		server.WriteErrorResponse(w, http.StatusBadRequest, "Cannot revoke current session")
+		return
+	}
+
+	// Revoke the session
+	if err := ah.securityService.RevokeSession(req.SessionID); err != nil {
+		logging.Error("Failed to revoke session", logging.Err(err))
+		server.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to revoke session")
+		return
+	}
+
+	server.WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Session revoked successfully",
+	})
+}
+
+// handleAdminSessions handles admin session management (admin only)
+func (ah *AuthHandlers) handleAdminSessions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		ah.handleGetAllSessions(w, r)
+	case http.MethodDelete:
+		ah.handleAdminRevokeSession(w, r)
+	default:
+		server.WriteErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+// handleGetAllSessions returns all active sessions (admin only)
+func (ah *AuthHandlers) handleGetAllSessions(w http.ResponseWriter, r *http.Request) {
+	// Get session analytics which includes session counts
+	analytics := ah.securityService.GetSessionAnalytics()
+
+	// For now, return basic analytics data
+	// In a full implementation, this would return detailed session list
+	server.WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"total_sessions":   analytics.TotalSessions,
+		"active_sessions":  analytics.ActiveSessions,
+		"expired_sessions": analytics.ExpiredSessions,
+		"message":          "Detailed session listing not implemented yet",
+	})
+}
+
+// handleAdminRevokeSession allows admin to revoke any session
+func (ah *AuthHandlers) handleAdminRevokeSession(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID string `json:"session_id" binding:"required"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		server.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := ah.securityService.RevokeSession(req.SessionID); err != nil {
+		logging.Error("Admin failed to revoke session", logging.Err(err))
+		server.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to revoke session")
+		return
+	}
+
+	server.WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Session revoked successfully",
+	})
+}
+
+// handleSessionAnalytics returns detailed session analytics (admin only)
+func (ah *AuthHandlers) handleSessionAnalytics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		server.WriteErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
-	// For now, just return basic session info
-	// In a full implementation, this would show all user sessions
-	server.WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"sessions": []interface{}{
-			map[string]interface{}{
-				"current": true,
-				"ip":      getClientIP(r),
-				"agent":   r.UserAgent(),
-			},
-		},
-	})
+	analytics := ah.securityService.GetSessionAnalytics()
+	server.WriteJSONResponse(w, http.StatusOK, analytics)
 }
 
 // handleUsers handles user management (admin only)
@@ -449,4 +642,20 @@ func calculatePasswordScore(password string) int {
 	}
 
 	return score
+}
+
+// Helper method to get current session ID
+func (ah *AuthHandlers) getCurrentSessionID(r *http.Request) string {
+	// Try cookie first
+	if cookie, err := r.Cookie("session_id"); err == nil {
+		return cookie.Value
+	}
+
+	// Try Authorization header
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+
+	return ""
 }

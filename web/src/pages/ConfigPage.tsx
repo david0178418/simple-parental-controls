@@ -100,10 +100,96 @@ function ConfigPage() {
       setLoading(true);
       setError(null);
       const configsData = await apiClient.getConfigs();
-      setConfigs(configsData);
+      
+      // Defensive check for response structure
+      if (Array.isArray(configsData)) {
+        setConfigs(configsData);
+      } else if (configsData && typeof configsData === 'object' && Array.isArray((configsData as any).data)) {
+        // Handle wrapped response
+        setConfigs((configsData as any).data);
+      } else {
+        console.warn('Unexpected configs response structure:', configsData);
+        setConfigs([]);
+        setError('Received unexpected data format from server');
+      }
     } catch (err) {
-      const errorMsg = err instanceof ApiError ? err.message : 'Failed to load configurations';
-      setError(errorMsg);
+      console.error('Failed to load configurations:', err);
+      setConfigs([]); // Ensure configs is always an array
+      
+      if (err instanceof ApiError && err.status === 404) {
+        // Configuration API not implemented yet - provide demo data
+        const demoConfigs: Config[] = [
+          {
+            id: 1,
+            key: 'system.monitoring_enabled',
+            value: 'true',
+            description: 'Enable system monitoring and health checks',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 2,
+            key: 'system.auto_update',
+            value: 'false',
+            description: 'Automatically update application when new versions are available',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 3,
+            key: 'server.port',
+            value: '8080',
+            description: 'Server listening port',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 4,
+            key: 'server.timeout',
+            value: '30',
+            description: 'Request timeout in seconds',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 5,
+            key: 'security.session_timeout',
+            value: '3600',
+            description: 'Session timeout in seconds',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 6,
+            key: 'auth.max_login_attempts',
+            value: '5',
+            description: 'Maximum failed login attempts before lockout',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 7,
+            key: 'log.level',
+            value: 'info',
+            description: 'Application logging level (debug, info, warn, error)',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 8,
+            key: 'audit.retention_days',
+            value: '90',
+            description: 'Number of days to retain audit logs',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ];
+        setConfigs(demoConfigs);
+        setError('Configuration API is not yet implemented. Showing demo data for interface preview.');
+      } else {
+        const errorMsg = err instanceof ApiError ? err.message : 'Failed to load configurations';
+        setError(errorMsg);
+      }
     } finally {
       setLoading(false);
     }
@@ -150,8 +236,21 @@ function ConfigPage() {
       setEditingConfig(null);
       setSuccess('Configuration updated successfully');
     } catch (err) {
-      const errorMsg = err instanceof ApiError ? err.message : 'Failed to update configuration';
-      setError(errorMsg);
+      if (err instanceof ApiError && err.status === 404) {
+        // Demo mode - simulate update
+        const updatedConfigs = configs.map(config => 
+          config.id === editingConfig.id 
+            ? { ...config, value: configForm.value, updated_at: new Date().toISOString() }
+            : config
+        );
+        setConfigs(updatedConfigs);
+        setEditDialogOpen(false);
+        setEditingConfig(null);
+        setSuccess('Configuration updated successfully (demo mode)');
+      } else {
+        const errorMsg = err instanceof ApiError ? err.message : 'Failed to update configuration';
+        setError(errorMsg);
+      }
     } finally {
       setLoading(false);
     }
@@ -175,8 +274,15 @@ function ConfigPage() {
       setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
       setSuccess('Password changed successfully');
     } catch (err) {
-      const errorMsg = err instanceof ApiError ? err.message : 'Failed to change password';
-      setError(errorMsg);
+      if (err instanceof ApiError && err.status === 404) {
+        // Demo mode - simulate password change
+        setPasswordDialogOpen(false);
+        setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+        setSuccess('Password changed successfully (demo mode)');
+      } else {
+        const errorMsg = err instanceof ApiError ? err.message : 'Failed to change password';
+        setError(errorMsg);
+      }
     } finally {
       setLoading(false);
     }
@@ -190,6 +296,10 @@ function ConfigPage() {
   };
 
   const getConfigsByCategory = (category: string): Config[] => {
+    if (!Array.isArray(configs)) {
+      console.warn('configs is not an array:', configs);
+      return [];
+    }
     return configs.filter(c => c.key.startsWith(category));
   };
 

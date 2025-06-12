@@ -21,10 +21,10 @@ import {
   ExitToApp,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
   children: React.ReactNode;
-  onLogout: () => void;
 }
 
 const drawerWidth = 240;
@@ -36,16 +36,17 @@ const navigationItems = [
   { text: 'Configuration', icon: <Settings />, path: '/config' },
 ];
 
-function Layout({ children, onLogout }: LayoutProps) {
+function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { logout } = useAuth();
 
   const handleNavigation = (path: string): void => {
     navigate(path);
   };
 
-  const handleLogout = (): void => {
-    onLogout();
+  const handleLogout = async (): Promise<void> => {
+    await logout();
   };
 
   return (

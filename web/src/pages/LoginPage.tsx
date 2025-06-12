@@ -10,13 +10,11 @@ import {
   Container,
 } from '@mui/material';
 import { Lock } from '@mui/icons-material';
-import { apiClient, ApiError } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
+import { Navigate } from 'react-router-dom';
 
-interface LoginPageProps {
-  onLogin: () => void;
-}
-
-function LoginPage({ onLogin }: LoginPageProps) {
+function LoginPage() {
+  const { login, isAuthenticated } = useAuth();
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,23 +30,13 @@ function LoginPage({ onLogin }: LoginPageProps) {
     setIsLoading(true);
     setError(null);
 
-    try {
-      const response = await apiClient.login({ password });
-      
-      if (response.success) {
-        onLogin();
-      } else {
-        setError(response.message || 'Login failed');
-      }
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError('Network error occurred');
-      }
-    } finally {
-      setIsLoading(false);
+    const result = await login(password);
+    
+    if (!result.success) {
+      setError(result.error || 'Login failed');
     }
+    
+    setIsLoading(false);
   };
 
   const handlePasswordChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
@@ -57,6 +45,11 @@ function LoginPage({ onLogin }: LoginPageProps) {
       setError(null);
     }
   };
+
+  // Redirect to dashboard if already authenticated
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return (
     <Container component="main" maxWidth="sm">

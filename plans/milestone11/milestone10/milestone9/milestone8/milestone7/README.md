@@ -1,4 +1,4 @@
-# Milestone 8: Logging & Audit System
+# Milestone 7: Logging & Audit System
 
 **Priority:** Medium  
 **Overview:** Implement comprehensive audit logging system with configurable retention policies and automatic log rotation.
@@ -18,7 +18,7 @@
 
 | Task | Description | Status | Dependencies |
 |------|-------------|---------|--------------|
-| [Task 1](./task1-audit-logging.md) | Comprehensive Audit Logging System | 🔴 | Milestone 7 Complete |
+| [Task 1](./task1-audit-logging.md) | Comprehensive Audit Logging System | 🔴 | Milestone 2 Complete |
 | [Task 2](./task2-log-retention.md) | Configurable Log Retention Policies | 🔴 | Task 1.2 |
 | [Task 3](./task3-log-rotation.md) | Automatic Log Rotation and Cleanup | 🔴 | Task 2.2 |
 | [Task 4](./task4-performance-monitoring.md) | Performance Monitoring and Metrics | 🔴 | Task 1.3 |

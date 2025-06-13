@@ -344,12 +344,13 @@ make build-windows
 
 ### Upcoming Milestones
 
-- **Milestone 7**: List Management System - Create/edit whitelist and blacklist rules
-- **Milestone 8**: Scheduling System - Time windows and quota management  
-- **Milestone 9**: Enforcement Engine - Application and network filtering
-- **Milestone 10**: Management Interface - Complete web UI for rule management
-- **Milestone 11**: QR Code & Discovery - Easy access via QR codes
-- **Milestone 12**: Audit & Reporting - Comprehensive activity monitoring
+- **Milestone 7**: Web Dashboard Integration - Wire up React dashboard with static file serving
+- **Milestone 8**: Logging & Audit System - Comprehensive activity tracking and monitoring
+- **Milestone 9**: QR Code & Discovery - Easy access via QR codes
+- **Milestone 10**: Cross-Platform Compatibility - Windows and Linux support
+- **Milestone 11**: Installers & Deployment - Production installation packages
+- **Milestone 12**: Testing & Quality Assurance - Comprehensive testing and validation
+- **Milestone 13**: Documentation & Release - Final documentation and release preparation
 
 ## Contributing
 

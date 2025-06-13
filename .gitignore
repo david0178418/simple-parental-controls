@@ -1,3 +1,7 @@
 build/
 node_modules/
+certs/
+*.crt
+*.key
+data/
 parental-control

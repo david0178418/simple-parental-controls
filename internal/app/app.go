@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -15,16 +16,52 @@ import (
 // Config holds the application configuration
 type Config struct {
 	Service  service.Config
-	Server   server.Config
+	Web      config.WebConfig
 	Security config.SecurityConfig
 }
 
 // DefaultConfig returns application configuration with sensible defaults
 func DefaultConfig() Config {
+	defaultConfig := config.Default()
 	return Config{
 		Service:  service.DefaultConfig(),
-		Server:   server.DefaultConfig(),
-		Security: config.DefaultSecurityConfig(),
+		Web:      defaultConfig.Web,
+		Security: defaultConfig.Security,
+	}
+}
+
+// convertConfigToServerConfig converts app config to server config format
+func convertConfigToServerConfig(webConfig config.WebConfig) server.Config {
+	// Convert IP addresses from strings to net.IP
+	var ipAddresses []net.IP
+	ipAddresses = append(ipAddresses, net.IPv4(127, 0, 0, 1))
+	ipAddresses = append(ipAddresses, net.IPv6loopback)
+
+	tlsConfig := server.TLSConfig{
+		Enabled:       webConfig.TLSEnabled,
+		CertFile:      webConfig.TLSCertFile,
+		KeyFile:       webConfig.TLSKeyFile,
+		AutoGenerate:  webConfig.TLSAutoGenerate,
+		CertDir:       webConfig.TLSCertDir,
+		Hostname:      webConfig.TLSHostname,
+		IPAddresses:   ipAddresses,
+		ValidDuration: 365 * 24 * time.Hour, // 1 year
+		MinTLSVersion: 0x0303,               // TLS 1.2
+		RedirectHTTP:  webConfig.TLSRedirectHTTP,
+		HTTPPort:      webConfig.Port,
+	}
+
+	return server.Config{
+		Port:              webConfig.Port,
+		BindToLAN:         true,
+		AllowedInterfaces: []string{},
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MB
+		StaticFileRoot:    webConfig.StaticDir,
+		EnableCompression: true,
+		TLS:               tlsConfig,
 	}
 }
 
@@ -65,6 +102,7 @@ type App struct {
 	httpServer      *server.Server
 	apiServer       *server.SimpleAPIServer
 	authAPIServer   *server.AuthAPIServer
+	tlsAPIServer    *server.TLSAPIServer
 	securityService *auth.SecurityService
 	mu              sync.RWMutex
 }
@@ -101,7 +139,8 @@ func (a *App) Start() error {
 	}
 
 	// Initialize HTTP server
-	a.httpServer = server.New(a.config.Server)
+	serverConfig := convertConfigToServerConfig(a.config.Web)
+	a.httpServer = server.New(serverConfig)
 
 	// Initialize API servers
 	a.apiServer = server.NewSimpleAPIServer()
@@ -113,6 +152,10 @@ func (a *App) Start() error {
 		a.authAPIServer = server.NewAuthAPIServer(authServiceAdapter)
 		a.authAPIServer.RegisterRoutes(a.httpServer)
 	}
+
+	// Initialize TLS API server
+	a.tlsAPIServer = server.NewTLSAPIServer(a.httpServer)
+	a.tlsAPIServer.RegisterRoutes(a.httpServer)
 
 	// Start HTTP server
 	if err := a.httpServer.Start(); err != nil {
@@ -184,8 +227,15 @@ func (a *App) GetStatus() map[string]interface{} {
 
 	if a.httpServer != nil {
 		status["http_server"] = map[string]interface{}{
-			"running": a.httpServer.IsRunning(),
-			"address": a.httpServer.GetAddress(),
+			"running":       a.httpServer.IsRunning(),
+			"address":       a.httpServer.GetAddress(),
+			"https_address": a.httpServer.GetHTTPSAddress(),
+			"tls_enabled":   a.httpServer.IsTLSEnabled(),
+		}
+
+		// Add TLS certificate info if available
+		if tlsInfo, err := a.httpServer.GetTLSInfo(); err == nil {
+			status["tls"] = tlsInfo
 		}
 	}
 

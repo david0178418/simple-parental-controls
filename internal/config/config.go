@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,6 +92,21 @@ type WebConfig struct {
 
 	// TLSKeyFile path to TLS private key
 	TLSKeyFile string `yaml:"tls_key_file" json:"tls_key_file"`
+
+	// TLSAutoGenerate automatically generates self-signed certificates
+	TLSAutoGenerate bool `yaml:"tls_auto_generate" json:"tls_auto_generate"`
+
+	// TLSCertDir directory to store generated certificates
+	TLSCertDir string `yaml:"tls_cert_dir" json:"tls_cert_dir"`
+
+	// TLSHostname for certificate generation
+	TLSHostname string `yaml:"tls_hostname" json:"tls_hostname"`
+
+	// TLSRedirectHTTP automatically redirect HTTP to HTTPS
+	TLSRedirectHTTP bool `yaml:"tls_redirect_http" json:"tls_redirect_http"`
+
+	// HTTPSPort port for HTTPS server (when different from HTTP)
+	HTTPSPort int `yaml:"https_port" json:"https_port"`
 }
 
 // SecurityConfig holds security-related settings
@@ -166,13 +182,18 @@ func Default() *Config {
 			EnableCaller:    false,
 		},
 		Web: WebConfig{
-			Enabled:     true,
-			Port:        8080,
-			Host:        "localhost",
-			StaticDir:   "./web/static",
-			TLSEnabled:  false,
-			TLSCertFile: "",
-			TLSKeyFile:  "",
+			Enabled:         true,
+			Port:            8080,
+			Host:            "localhost",
+			StaticDir:       "./web/static",
+			TLSEnabled:      false,
+			TLSCertFile:     "",
+			TLSKeyFile:      "",
+			TLSAutoGenerate: true,
+			TLSCertDir:      "./certs",
+			TLSHostname:     "localhost",
+			TLSRedirectHTTP: false,
+			HTTPSPort:       8443,
 		},
 		Security: SecurityConfig{
 			EnableAuth:            false, // Disabled by default for easier setup
@@ -312,11 +333,13 @@ func applyEnvironmentOverrides(config *Config) error {
 
 	// Web configuration
 	if val := os.Getenv("PC_WEB_ENABLED"); val != "" {
-		config.Web.Enabled = strings.ToLower(val) == "true"
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Web.Enabled = enabled
+		}
 	}
 	if val := os.Getenv("PC_WEB_PORT"); val != "" {
-		if parsed, err := parseIntFromEnv(val); err == nil {
-			config.Web.Port = parsed
+		if port, err := parseIntFromEnv(val); err == nil {
+			config.Web.Port = port
 		}
 	}
 	if val := os.Getenv("PC_WEB_HOST"); val != "" {
@@ -326,13 +349,36 @@ func applyEnvironmentOverrides(config *Config) error {
 		config.Web.StaticDir = val
 	}
 	if val := os.Getenv("PC_WEB_TLS_ENABLED"); val != "" {
-		config.Web.TLSEnabled = strings.ToLower(val) == "true"
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Web.TLSEnabled = enabled
+		}
 	}
 	if val := os.Getenv("PC_WEB_TLS_CERT_FILE"); val != "" {
 		config.Web.TLSCertFile = val
 	}
 	if val := os.Getenv("PC_WEB_TLS_KEY_FILE"); val != "" {
 		config.Web.TLSKeyFile = val
+	}
+	if val := os.Getenv("PC_WEB_TLS_AUTO_GENERATE"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Web.TLSAutoGenerate = enabled
+		}
+	}
+	if val := os.Getenv("PC_WEB_TLS_CERT_DIR"); val != "" {
+		config.Web.TLSCertDir = val
+	}
+	if val := os.Getenv("PC_WEB_TLS_HOSTNAME"); val != "" {
+		config.Web.TLSHostname = val
+	}
+	if val := os.Getenv("PC_WEB_TLS_REDIRECT_HTTP"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Web.TLSRedirectHTTP = enabled
+		}
+	}
+	if val := os.Getenv("PC_WEB_HTTPS_PORT"); val != "" {
+		if port, err := parseIntFromEnv(val); err == nil {
+			config.Web.HTTPSPort = port
+		}
 	}
 
 	// Security configuration
@@ -464,11 +510,31 @@ func (c *Config) Validate() error {
 			errors = append(errors, "web.host cannot be empty when web interface is enabled")
 		}
 		if c.Web.TLSEnabled {
-			if c.Web.TLSCertFile == "" {
-				errors = append(errors, "web.tls_cert_file is required when TLS is enabled")
+			// Only require cert/key files if auto-generation is disabled
+			if !c.Web.TLSAutoGenerate {
+				if c.Web.TLSCertFile == "" {
+					errors = append(errors, "web.tls_cert_file is required when TLS is enabled and auto_generate is false")
+				}
+				if c.Web.TLSKeyFile == "" {
+					errors = append(errors, "web.tls_key_file is required when TLS is enabled and auto_generate is false")
+				}
+			} else {
+				// Validate auto-generation requirements
+				if c.Web.TLSCertDir == "" {
+					errors = append(errors, "web.tls_cert_dir is required when TLS auto-generation is enabled")
+				}
+				if c.Web.TLSHostname == "" {
+					errors = append(errors, "web.tls_hostname is required when TLS auto-generation is enabled")
+				}
 			}
-			if c.Web.TLSKeyFile == "" {
-				errors = append(errors, "web.tls_key_file is required when TLS is enabled")
+			// Validate HTTPS port if different from HTTP port
+			if c.Web.TLSRedirectHTTP && c.Web.HTTPSPort > 0 {
+				if c.Web.HTTPSPort <= 0 || c.Web.HTTPSPort > 65535 {
+					errors = append(errors, "web.https_port must be between 1 and 65535")
+				}
+				if c.Web.HTTPSPort == c.Web.Port {
+					errors = append(errors, "web.https_port cannot be the same as web.port when redirect is enabled")
+				}
 			}
 		}
 	}
@@ -641,4 +707,26 @@ func DefaultSecurityConfig() SecurityConfig {
 		AllowMultipleSessions: false,
 		MaxSessions:           1,
 	}
+}
+
+// ConvertWebConfigToTLSConfig converts WebConfig to server.TLSConfig format
+func ConvertWebConfigToTLSConfig(webConfig WebConfig) map[string]interface{} {
+	config := map[string]interface{}{
+		"enabled":         webConfig.TLSEnabled,
+		"cert_file":       webConfig.TLSCertFile,
+		"key_file":        webConfig.TLSKeyFile,
+		"auto_generate":   webConfig.TLSAutoGenerate,
+		"cert_dir":        webConfig.TLSCertDir,
+		"hostname":        webConfig.TLSHostname,
+		"redirect_http":   webConfig.TLSRedirectHTTP,
+		"http_port":       webConfig.Port,
+		"https_port":      webConfig.HTTPSPort,
+		"valid_duration":  365 * 24 * time.Hour, // 1 year
+		"min_tls_version": uint16(0x0303),       // TLS 1.2
+	}
+
+	// Set IP addresses for certificate
+	config["ip_addresses"] = []string{"127.0.0.1", "::1"}
+
+	return config
 }

@@ -6,7 +6,9 @@ import (
 	"os"
 
 	"parental-control/internal/app"
+	"parental-control/internal/config"
 	"parental-control/internal/logging"
+	"parental-control/internal/service"
 )
 
 // Version information - will be injected at build time
@@ -21,7 +23,6 @@ func main() {
 		showVersion = flag.Bool("version", false, "Show version information")
 		configPath  = flag.String("config", "", "Path to configuration file")
 		port        = flag.Int("port", 8080, "HTTP server port")
-		bindLAN     = flag.Bool("bind-lan", true, "Bind to LAN interfaces only")
 	)
 	flag.Parse()
 
@@ -40,16 +41,35 @@ func main() {
 	logging.Info("Starting Parental Control Application", logging.String("version", Version))
 
 	// Create application configuration
-	appConfig := app.DefaultConfig()
-
-	// Override with command line flags
-	appConfig.Server.Port = *port
-	appConfig.Server.BindToLAN = *bindLAN
+	var appConfig app.Config
 
 	if *configPath != "" {
-		// TODO: Load configuration from file when configuration management is implemented
-		logging.Info("Using config file", logging.String("path", *configPath))
+		// Load configuration from file
+		logging.Info("Loading config file", logging.String("path", *configPath))
+		fullConfig, err := config.LoadFromFile(*configPath)
+		if err != nil {
+			logging.Fatal("Failed to load configuration file", logging.Err(err))
+		}
+		appConfig = app.Config{
+			Service:  service.DefaultConfig(),
+			Web:      fullConfig.Web,
+			Security: fullConfig.Security,
+		}
+	} else {
+		// Load configuration from environment variables
+		fullConfig, err := config.LoadFromEnvironment()
+		if err != nil {
+			logging.Fatal("Failed to load configuration from environment", logging.Err(err))
+		}
+		appConfig = app.Config{
+			Service:  service.DefaultConfig(),
+			Web:      fullConfig.Web,
+			Security: fullConfig.Security,
+		}
 	}
+
+	// Override with command line flags
+	appConfig.Web.Port = *port
 
 	// Create and start the application
 	application := app.New(appConfig)

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -32,6 +33,8 @@ type Config struct {
 	StaticFileRoot string
 	// EnableCompression for static file serving
 	EnableCompression bool
+	// TLS configuration
+	TLS TLSConfig
 }
 
 // DefaultConfig returns server configuration with sensible defaults
@@ -46,18 +49,22 @@ func DefaultConfig() Config {
 		MaxHeaderBytes:    1 << 20, // 1 MB
 		StaticFileRoot:    "./web/build",
 		EnableCompression: true,
+		TLS:               DefaultTLSConfig(),
 	}
 }
 
 // Server represents the embedded HTTP server
 type Server struct {
-	config     Config
-	httpServer *http.Server
-	listener   net.Listener
-	mux        *http.ServeMux
-	mu         sync.RWMutex
-	running    bool
-	startTime  time.Time
+	config      Config
+	httpServer  *http.Server
+	httpsServer *http.Server
+	listener    net.Listener
+	tlsListener net.Listener
+	mux         *http.ServeMux
+	tlsManager  *TLSManager
+	mu          sync.RWMutex
+	running     bool
+	startTime   time.Time
 }
 
 // HealthStatus represents the server health information
@@ -74,8 +81,9 @@ func New(config Config) *Server {
 	mux := http.NewServeMux()
 
 	server := &Server{
-		config: config,
-		mux:    mux,
+		config:     config,
+		mux:        mux,
+		tlsManager: NewTLSManager(config.TLS),
 	}
 
 	// Register built-in endpoints
@@ -84,7 +92,7 @@ func New(config Config) *Server {
 	return server
 }
 
-// Start starts the HTTP server
+// Start starts the HTTP server and optionally HTTPS server
 func (s *Server) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -93,27 +101,138 @@ func (s *Server) Start() error {
 		return fmt.Errorf("server is already running")
 	}
 
+	s.startTime = time.Now()
+
+	// Start HTTPS server if TLS is enabled
+	if s.config.TLS.Enabled {
+		if err := s.startHTTPSServer(); err != nil {
+			return fmt.Errorf("failed to start HTTPS server: %w", err)
+		}
+	}
+
+	// Start HTTP server (either standalone or for redirects)
+	if err := s.startHTTPServer(); err != nil {
+		// If HTTPS failed to start, clean up HTTPS server
+		if s.httpsServer != nil {
+			s.httpsServer.Close()
+		}
+		return fmt.Errorf("failed to start HTTP server: %w", err)
+	}
+
+	s.running = true
+
+	if s.config.TLS.Enabled {
+		logging.Info("Servers started successfully",
+			logging.String("http_address", s.listener.Addr().String()),
+			logging.String("https_address", s.tlsListener.Addr().String()),
+			logging.Bool("lan_only", s.config.BindToLAN))
+	} else {
+		logging.Info("HTTP server started successfully",
+			logging.String("address", s.listener.Addr().String()),
+			logging.Bool("lan_only", s.config.BindToLAN))
+	}
+
+	return nil
+}
+
+// startHTTPSServer starts the HTTPS server
+func (s *Server) startHTTPSServer() error {
+	// Ensure certificates exist
+	if err := s.tlsManager.EnsureCertificates(); err != nil {
+		return fmt.Errorf("failed to ensure TLS certificates: %w", err)
+	}
+
+	// Get TLS configuration
+	tlsConfig, err := s.tlsManager.GetTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get TLS config: %w", err)
+	}
+
+	// Create HTTPS listener
+	httpsPort := s.config.Port
+	if s.config.TLS.RedirectHTTP {
+		httpsPort = 8443 // Use different port for HTTPS when redirecting
+	}
+
+	httpsAddr := fmt.Sprintf(":%d", httpsPort)
+	if s.config.BindToLAN {
+		// For HTTPS, we'll bind to the same interface detection as HTTP
+		listener, err := s.createListener()
+		if err != nil {
+			return fmt.Errorf("failed to create HTTPS listener: %w", err)
+		}
+		listener.Close() // We just needed the address
+
+		if tcpAddr, ok := listener.Addr().(*net.TCPAddr); ok {
+			tcpAddr.Port = httpsPort
+			httpsAddr = tcpAddr.String()
+		}
+	}
+
+	tlsListener, err := tls.Listen("tcp", httpsAddr, tlsConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create TLS listener: %w", err)
+	}
+
+	s.tlsListener = tlsListener
+
+	// Create HTTPS server
+	s.httpsServer = &http.Server{
+		Handler:        s.mux,
+		ReadTimeout:    s.config.ReadTimeout,
+		WriteTimeout:   s.config.WriteTimeout,
+		IdleTimeout:    s.config.IdleTimeout,
+		MaxHeaderBytes: s.config.MaxHeaderBytes,
+		TLSConfig:      tlsConfig,
+	}
+
+	// Start HTTPS server in goroutine
+	go func() {
+		logging.Info("HTTPS server starting",
+			logging.String("address", tlsListener.Addr().String()))
+
+		if err := s.httpsServer.Serve(tlsListener); err != nil && err != http.ErrServerClosed {
+			logging.Error("HTTPS server error", logging.Err(err))
+		}
+	}()
+
+	return nil
+}
+
+// startHTTPServer starts the HTTP server
+func (s *Server) startHTTPServer() error {
 	// Create listener with appropriate binding
 	listener, err := s.createListener()
 	if err != nil {
-		return fmt.Errorf("failed to create listener: %w", err)
+		return fmt.Errorf("failed to create HTTP listener: %w", err)
 	}
 
 	s.listener = listener
-	s.startTime = time.Now()
+
+	// Determine handler for HTTP server
+	var handler http.Handler = s.mux
+
+	// If TLS is enabled and redirect is configured, use redirect handler
+	if s.config.TLS.Enabled && s.config.TLS.RedirectHTTP {
+		httpsPort := 8443
+		if s.tlsListener != nil {
+			if tcpAddr, ok := s.tlsListener.Addr().(*net.TCPAddr); ok {
+				httpsPort = tcpAddr.Port
+			}
+		}
+		handler = s.tlsManager.HTTPRedirectHandler(httpsPort)
+	}
 
 	// Create HTTP server
 	s.httpServer = &http.Server{
-		Handler:        s.mux,
+		Handler:        handler,
 		ReadTimeout:    s.config.ReadTimeout,
 		WriteTimeout:   s.config.WriteTimeout,
 		IdleTimeout:    s.config.IdleTimeout,
 		MaxHeaderBytes: s.config.MaxHeaderBytes,
 	}
 
-	s.running = true
-
-	// Start server in goroutine
+	// Start HTTP server in goroutine
 	go func() {
 		logging.Info("HTTP server starting",
 			logging.String("address", listener.Addr().String()))
@@ -123,39 +242,53 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	logging.Info("HTTP server started successfully",
-		logging.String("address", listener.Addr().String()),
-		logging.Bool("lan_only", s.config.BindToLAN))
-
 	return nil
 }
 
-// Stop gracefully shuts down the HTTP server
+// Stop gracefully shuts down the HTTP and HTTPS servers
 func (s *Server) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.running || s.httpServer == nil {
+	if !s.running {
 		return nil
 	}
 
-	logging.Info("Shutting down HTTP server")
+	logging.Info("Shutting down servers")
 
 	// Create shutdown context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Gracefully shutdown the server
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		logging.Error("HTTP server shutdown error", logging.Err(err))
-		return err
+	var shutdownErrors []error
+
+	// Shutdown HTTPS server if running
+	if s.httpsServer != nil {
+		if err := s.httpsServer.Shutdown(ctx); err != nil {
+			logging.Error("HTTPS server shutdown error", logging.Err(err))
+			shutdownErrors = append(shutdownErrors, err)
+		}
+		s.httpsServer = nil
+		s.tlsListener = nil
+	}
+
+	// Shutdown HTTP server if running
+	if s.httpServer != nil {
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			logging.Error("HTTP server shutdown error", logging.Err(err))
+			shutdownErrors = append(shutdownErrors, err)
+		}
+		s.httpServer = nil
+		s.listener = nil
 	}
 
 	s.running = false
-	s.httpServer = nil
-	s.listener = nil
 
-	logging.Info("HTTP server stopped successfully")
+	if len(shutdownErrors) > 0 {
+		return fmt.Errorf("errors during server shutdown: %v", shutdownErrors)
+	}
+
+	logging.Info("Servers stopped successfully")
 	return nil
 }
 
@@ -166,7 +299,7 @@ func (s *Server) IsRunning() bool {
 	return s.running
 }
 
-// GetAddress returns the server's listening address
+// GetAddress returns the HTTP server's listening address
 func (s *Server) GetAddress() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -175,6 +308,30 @@ func (s *Server) GetAddress() string {
 		return ""
 	}
 	return s.listener.Addr().String()
+}
+
+// GetHTTPSAddress returns the HTTPS server's listening address
+func (s *Server) GetHTTPSAddress() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.tlsListener == nil {
+		return ""
+	}
+	return s.tlsListener.Addr().String()
+}
+
+// IsTLSEnabled returns whether TLS is enabled
+func (s *Server) IsTLSEnabled() bool {
+	return s.config.TLS.Enabled
+}
+
+// GetTLSInfo returns TLS certificate information
+func (s *Server) GetTLSInfo() (map[string]interface{}, error) {
+	if s.tlsManager == nil {
+		return map[string]interface{}{"enabled": false}, nil
+	}
+	return s.tlsManager.GetCertificateInfo()
 }
 
 // AddHandler adds a new HTTP handler to the server

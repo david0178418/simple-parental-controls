@@ -15,6 +15,7 @@ import { Navigate } from 'react-router-dom';
 
 function LoginPage() {
   const { login, isAuthenticated } = useAuth();
+  const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,21 +23,28 @@ function LoginPage() {
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     
-    if (!password.trim()) {
-      setError('Please enter a password');
+    if (!username.trim() || !password.trim()) {
+      setError('Please enter both username and password');
       return;
     }
 
     setIsLoading(true);
     setError(null);
 
-    const result = await login(password);
+    const result = await login(username, password);
     
     if (!result.success) {
       setError(result.error || 'Login failed');
     }
     
     setIsLoading(false);
+  };
+
+  const handleUsernameChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    setUsername(event.target.value);
+    if (error) {
+      setError(null);
+    }
   };
 
   const handlePasswordChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
@@ -104,12 +112,24 @@ function LoginPage() {
               margin="normal"
               required
               fullWidth
+              id="username"
+              label="Username"
+              name="username"
+              autoComplete="username"
+              autoFocus
+              value={username}
+              onChange={handleUsernameChange}
+              disabled={isLoading}
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
               name="password"
               label="Password"
               type="password"
               id="password"
               autoComplete="current-password"
-              autoFocus
               value={password}
               onChange={handlePasswordChange}
               disabled={isLoading}
@@ -120,7 +140,7 @@ function LoginPage() {
               fullWidth
               variant="contained"
               sx={{ mt: 3, mb: 2 }}
-              disabled={isLoading || !password.trim()}
+              disabled={isLoading || !username.trim() || !password.trim()}
             >
               {isLoading ? (
                 <CircularProgress size={24} sx={{ color: 'white' }} />
@@ -131,7 +151,7 @@ function LoginPage() {
           </Box>
 
           <Typography variant="body2" color="text.secondary" align="center">
-            Enter the administrator password to access the management interface
+            Default credentials: admin / Admin123!
           </Typography>
         </Paper>
       </Box>

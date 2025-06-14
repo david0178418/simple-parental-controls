@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -157,6 +158,12 @@ func (a *App) Start() error {
 	a.tlsAPIServer = server.NewTLSAPIServer(a.httpServer)
 	a.tlsAPIServer.RegisterRoutes(a.httpServer)
 
+	// Setup static file server for web dashboard
+	if err := a.setupStaticFileServer(); err != nil {
+		a.service.Stop()
+		return fmt.Errorf("failed to setup static file server: %w", err)
+	}
+
 	// Start HTTP server
 	if err := a.httpServer.Start(); err != nil {
 		a.service.Stop()
@@ -308,4 +315,36 @@ func (a *App) GetSecurityService() *auth.SecurityService {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.securityService
+}
+
+// setupStaticFileServer sets up the static file server for the web dashboard
+func (a *App) setupStaticFileServer() error {
+	staticRoot := a.config.Web.StaticDir
+	if staticRoot == "" {
+		staticRoot = "./web/build"
+	}
+
+	// Check if static directory exists
+	if _, err := os.Stat(staticRoot); os.IsNotExist(err) {
+		logging.Warn("Static file directory does not exist",
+			logging.String("static_root", staticRoot))
+		// Create a simple filesystem that will return 404 for all files
+		return a.httpServer.SetupStaticFileServer(os.DirFS("."))
+	} else if err != nil {
+		return fmt.Errorf("failed to check static directory: %w", err)
+	}
+
+	// Create filesystem from the static directory
+	fileSystem := os.DirFS(staticRoot)
+
+	// Setup the static file server
+	if err := a.httpServer.SetupStaticFileServer(fileSystem); err != nil {
+		return fmt.Errorf("failed to configure static file server: %w", err)
+	}
+
+	logging.Info("Static file server setup complete",
+		logging.String("static_root", staticRoot),
+		logging.Bool("web_enabled", a.config.Web.Enabled))
+
+	return nil
 }

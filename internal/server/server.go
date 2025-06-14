@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"io/fs"
 	"parental-control/internal/logging"
 )
 
@@ -344,6 +345,25 @@ func (s *Server) AddHandlerFunc(pattern string, handler http.HandlerFunc) {
 	s.mux.HandleFunc(pattern, handler)
 }
 
+// SetupStaticFileServer configures and registers the static file server
+func (s *Server) SetupStaticFileServer(fileSystem fs.FS) error {
+	if s.config.StaticFileRoot == "" {
+		return fmt.Errorf("static file root not configured")
+	}
+
+	// Create static file server
+	staticServer := NewStaticFileServer(s.config, fileSystem)
+
+	// Register the static file server for all unmatched routes
+	s.mux.Handle("/", staticServer)
+
+	logging.Info("Static file server configured",
+		logging.String("static_root", s.config.StaticFileRoot),
+		logging.Bool("compression_enabled", s.config.EnableCompression))
+
+	return nil
+}
+
 // createListener creates the appropriate network listener based on configuration
 func (s *Server) createListener() (net.Listener, error) {
 	if s.config.BindToLAN {
@@ -462,7 +482,7 @@ func (s *Server) isPrivateIP(ip net.IP) bool {
 func (s *Server) registerBuiltinHandlers() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/status", s.handleStatus)
-	s.mux.HandleFunc("/", s.handleRoot)
+	// Note: Static file server will be registered separately during server initialization
 }
 
 // handleHealth returns server health information
@@ -513,6 +533,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 				"write_timeout":      s.config.WriteTimeout.String(),
 				"idle_timeout":       s.config.IdleTimeout.String(),
 				"enable_compression": s.config.EnableCompression,
+				"static_file_root":   s.config.StaticFileRoot,
 			},
 		},
 	}
@@ -523,32 +544,4 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
-}
-
-// handleRoot serves as a fallback handler for unmatched routes
-func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
-	// For now, return a simple response
-	// Later this will serve the React app
-	if r.URL.Path == "/" {
-		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<!DOCTYPE html>
-<html>
-<head>
-    <title>Parental Control</title>
-</head>
-<body>
-    <h1>Parental Control Management</h1>
-    <p>Web UI will be available here once implemented.</p>
-    <ul>
-        <li><a href="/health">Health Check</a></li>
-        <li><a href="/status">Server Status</a></li>
-    </ul>
-</body>
-</html>`))
-		return
-	}
-
-	// Return 404 for other paths
-	http.NotFound(w, r)
 }

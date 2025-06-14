@@ -164,6 +164,7 @@ export interface UpdateQuotaRuleRequest extends CreateQuotaRuleRequest {
 
 // Authentication Types
 export interface LoginRequest {
+  username: string;
   password: string;
 }
 

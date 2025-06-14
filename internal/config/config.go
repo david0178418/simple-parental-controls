@@ -185,7 +185,7 @@ func Default() *Config {
 			Enabled:         true,
 			Port:            8080,
 			Host:            "localhost",
-			StaticDir:       "./web/static",
+			StaticDir:       "./web/build",
 			TLSEnabled:      false,
 			TLSCertFile:     "",
 			TLSKeyFile:      "",

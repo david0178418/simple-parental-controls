@@ -4,7 +4,7 @@ import { apiClient, ApiError } from '../services/api';
 interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   checkAuthStatus: () => Promise<void>;
 }
@@ -35,9 +35,9 @@ function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const login = async (password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      const response = await apiClient.login({ password });
+      const response = await apiClient.login({ username, password });
       
       if (response.success) {
         setIsAuthenticated(true);

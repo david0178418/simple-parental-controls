@@ -98,14 +98,15 @@ func (a *SecurityServiceAdapter) GetSession(sessionID string) (server.AuthSessio
 
 // App coordinates the service and HTTP server
 type App struct {
-	config          Config
-	service         *service.Service
-	httpServer      *server.Server
-	apiServer       *server.SimpleAPIServer
-	authAPIServer   *server.AuthAPIServer
-	tlsAPIServer    *server.TLSAPIServer
-	securityService *auth.SecurityService
-	mu              sync.RWMutex
+	config             Config
+	service            *service.Service
+	httpServer         *server.Server
+	apiServer          *server.SimpleAPIServer
+	authAPIServer      *server.AuthAPIServer
+	tlsAPIServer       *server.TLSAPIServer
+	dashboardAPIServer *server.DashboardAPIServer
+	securityService    *auth.SecurityService
+	mu                 sync.RWMutex
 }
 
 // New creates a new application instance
@@ -157,6 +158,10 @@ func (a *App) Start() error {
 	// Initialize TLS API server
 	a.tlsAPIServer = server.NewTLSAPIServer(a.httpServer)
 	a.tlsAPIServer.RegisterRoutes(a.httpServer)
+
+	// Initialize dashboard API server
+	a.dashboardAPIServer = server.NewDashboardAPIServer()
+	a.dashboardAPIServer.RegisterRoutes(a.httpServer)
 
 	// Setup static file server for web dashboard
 	if err := a.setupStaticFileServer(); err != nil {

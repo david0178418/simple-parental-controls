@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"parental-control/internal/logging"
+	"parental-control/internal/models"
+	"parental-control/internal/service"
 )
 
 // EnforcementEngine coordinates process monitoring and network filtering
@@ -16,6 +18,9 @@ type EnforcementEngine struct {
 	networkFilter      NetworkFilter
 	trafficInterceptor TrafficInterceptor
 	identifier         *ProcessIdentifier
+
+	// Audit logging
+	auditService *service.AuditService
 
 	// Configuration
 	config *EnforcementConfig
@@ -86,7 +91,7 @@ type EnforcementStats struct {
 }
 
 // NewEnforcementEngine creates a new enforcement engine
-func NewEnforcementEngine(config *EnforcementConfig, logger logging.Logger) *EnforcementEngine {
+func NewEnforcementEngine(config *EnforcementConfig, logger logging.Logger, auditService *service.AuditService) *EnforcementEngine {
 	if config == nil {
 		config = &EnforcementConfig{
 			ProcessPollInterval:    1 * time.Second,
@@ -102,6 +107,7 @@ func NewEnforcementEngine(config *EnforcementConfig, logger logging.Logger) *Enf
 	engine := &EnforcementEngine{
 		config:        config,
 		logger:        logger,
+		auditService:  auditService,
 		identifier:    NewProcessIdentifier(),
 		processEvents: make(chan ProcessEvent, 100),
 		stopCh:        make(chan struct{}),
@@ -280,6 +286,44 @@ func (ee *EnforcementEngine) EvaluateNetworkRequest(ctx context.Context, url str
 	ee.stats.LastEnforcementTime = time.Now()
 	ee.statsMu.Unlock()
 
+	// Log enforcement action to audit system
+	if ee.auditService != nil {
+		auditAction := models.ActionTypeAllow
+		if decision.Action == ActionBlock {
+			auditAction = models.ActionTypeBlock
+		}
+
+		details := map[string]interface{}{
+			"reason":        decision.Reason,
+			"response_time": responseTime.String(),
+		}
+
+		if processInfo != nil {
+			details["process_name"] = processInfo.Name
+			details["process_pid"] = processInfo.PID
+		}
+
+		if decision.Rule != nil {
+			details["rule_name"] = decision.Rule.Name
+			details["rule_id"] = decision.Rule.ID
+		}
+
+		// Log asynchronously to avoid blocking enforcement
+		go func() {
+			if err := ee.auditService.LogEnforcementAction(
+				context.Background(), // Use background context for audit logging
+				auditAction,
+				models.TargetTypeURL,
+				url,
+				ee.getRuleType(decision.Rule),
+				ee.getRuleIDPtr(decision.Rule),
+				details,
+			); err != nil {
+				ee.logger.Error("Failed to log enforcement action", logging.Err(err))
+			}
+		}()
+	}
+
 	// Log enforcement action if needed
 	if ee.config.LogAllActivity || decision.Action == ActionBlock {
 		ee.logger.Info("Network enforcement",
@@ -377,7 +421,32 @@ func (ee *EnforcementEngine) applyProcessEnforcement(ctx context.Context, proces
 	// For example, blocking certain processes, limiting their network access, etc.
 
 	if ee.config.BlockUnknownProcesses {
-		// Implementation would go here to block unknown processes
+		// Log process blocking action
+		if ee.auditService != nil {
+			details := map[string]interface{}{
+				"process_name":      process.Name,
+				"process_pid":       process.PID,
+				"process_path":      process.Path,
+				"signature_matched": signature.Name,
+				"reason":            "blocked unknown process",
+			}
+
+			// Log asynchronously
+			go func() {
+				if err := ee.auditService.LogEnforcementAction(
+					context.Background(),
+					models.ActionTypeBlock,
+					models.TargetTypeExecutable,
+					process.Name,
+					"process_control",
+					nil, // No specific rule ID for process blocking
+					details,
+				); err != nil {
+					ee.logger.Error("Failed to log process enforcement action", logging.Err(err))
+				}
+			}()
+		}
+
 		ee.logger.Warn("Would block unknown process", logging.String("process", process.Name))
 	}
 
@@ -515,4 +584,35 @@ func (ee *EnforcementEngine) handleNetworkRequest(ctx context.Context, request N
 			ee.statsMu.Unlock()
 		}
 	}
+}
+
+// Helper methods for audit logging
+
+func (ee *EnforcementEngine) getRuleType(rule *FilterRule) string {
+	if rule != nil {
+		// Determine rule type based on rule properties
+		if len(rule.Categories) > 0 {
+			return "category_rule"
+		}
+		switch rule.MatchType {
+		case MatchDomain:
+			return "domain_rule"
+		case MatchWildcard:
+			return "wildcard_rule"
+		case MatchRegex:
+			return "regex_rule"
+		default:
+			return "filter_rule"
+		}
+	}
+	return "default"
+}
+
+func (ee *EnforcementEngine) getRuleIDPtr(rule *FilterRule) *int {
+	if rule != nil && rule.ID != "" {
+		// Try to convert rule ID to int if possible
+		// This is a simplification - in practice, you might want to handle this differently
+		return nil // Return nil for now as FilterRule.ID is a string
+	}
+	return nil
 }

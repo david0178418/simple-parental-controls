@@ -134,19 +134,48 @@ type RetentionExecutionRepository interface {
 	CleanupOldExecutions(ctx context.Context, before time.Time) error
 }
 
+// LogRotationPolicyRepository handles log rotation policy data access
+type LogRotationPolicyRepository interface {
+	Create(ctx context.Context, policy *LogRotationPolicy) error
+	GetByID(ctx context.Context, id int) (*LogRotationPolicy, error)
+	GetAll(ctx context.Context) ([]LogRotationPolicy, error)
+	GetEnabled(ctx context.Context) ([]LogRotationPolicy, error)
+	GetByPriority(ctx context.Context) ([]LogRotationPolicy, error) // Ordered by priority
+	Update(ctx context.Context, policy *LogRotationPolicy) error
+	Delete(ctx context.Context, id int) error
+	Count(ctx context.Context) (int, error)
+}
+
+// LogRotationExecutionRepository handles log rotation execution tracking
+type LogRotationExecutionRepository interface {
+	Create(ctx context.Context, execution *LogRotationExecution) error
+	GetByID(ctx context.Context, id int) (*LogRotationExecution, error)
+	GetByPolicyID(ctx context.Context, policyID int, limit, offset int) ([]LogRotationExecution, error)
+	GetRecent(ctx context.Context, limit int) ([]LogRotationExecution, error)
+	GetByStatus(ctx context.Context, status ExecutionStatus, limit, offset int) ([]LogRotationExecution, error)
+	GetByTimeRange(ctx context.Context, start, end time.Time, limit, offset int) ([]LogRotationExecution, error)
+	GetByTrigger(ctx context.Context, trigger RotationTrigger, limit, offset int) ([]LogRotationExecution, error)
+	Update(ctx context.Context, execution *LogRotationExecution) error
+	Delete(ctx context.Context, id int) error
+	GetStats(ctx context.Context) (*RotationStats, error)
+	CleanupOldExecutions(ctx context.Context, before time.Time) error
+}
+
 // RepositoryManager aggregates all repositories
 type RepositoryManager struct {
-	Config             ConfigRepository
-	List               ListRepository
-	ListEntry          ListEntryRepository
-	TimeRule           TimeRuleRepository
-	QuotaRule          QuotaRuleRepository
-	QuotaUsage         QuotaUsageRepository
-	AuditLog           AuditLogRepository
-	RetentionPolicy    RetentionPolicyRepository
-	RetentionExecution RetentionExecutionRepository
-	SchemaVersion      SchemaVersionRepository
-	Dashboard          DashboardRepository
+	Config               ConfigRepository
+	List                 ListRepository
+	ListEntry            ListEntryRepository
+	TimeRule             TimeRuleRepository
+	QuotaRule            QuotaRuleRepository
+	QuotaUsage           QuotaUsageRepository
+	AuditLog             AuditLogRepository
+	RetentionPolicy      RetentionPolicyRepository
+	RetentionExecution   RetentionExecutionRepository
+	LogRotationPolicy    LogRotationPolicyRepository
+	LogRotationExecution LogRotationExecutionRepository
+	SchemaVersion        SchemaVersionRepository
+	Dashboard            DashboardRepository
 }
 
 // SearchFilters for advanced queries

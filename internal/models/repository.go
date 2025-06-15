@@ -108,17 +108,45 @@ type DashboardRepository interface {
 	GetQuotasNearLimit(ctx context.Context, threshold float64) ([]QuotaUsage, error)
 }
 
+// RetentionPolicyRepository handles retention policy data access
+type RetentionPolicyRepository interface {
+	Create(ctx context.Context, policy *RetentionPolicy) error
+	GetByID(ctx context.Context, id int) (*RetentionPolicy, error)
+	GetAll(ctx context.Context) ([]RetentionPolicy, error)
+	GetEnabled(ctx context.Context) ([]RetentionPolicy, error)
+	GetByPriority(ctx context.Context) ([]RetentionPolicy, error) // Ordered by priority
+	Update(ctx context.Context, policy *RetentionPolicy) error
+	Delete(ctx context.Context, id int) error
+	Count(ctx context.Context) (int, error)
+}
+
+// RetentionExecutionRepository handles retention execution tracking
+type RetentionExecutionRepository interface {
+	Create(ctx context.Context, execution *RetentionPolicyExecution) error
+	GetByID(ctx context.Context, id int) (*RetentionPolicyExecution, error)
+	GetByPolicyID(ctx context.Context, policyID int, limit, offset int) ([]RetentionPolicyExecution, error)
+	GetRecent(ctx context.Context, limit int) ([]RetentionPolicyExecution, error)
+	GetByStatus(ctx context.Context, status ExecutionStatus, limit, offset int) ([]RetentionPolicyExecution, error)
+	GetByTimeRange(ctx context.Context, start, end time.Time, limit, offset int) ([]RetentionPolicyExecution, error)
+	Update(ctx context.Context, execution *RetentionPolicyExecution) error
+	Delete(ctx context.Context, id int) error
+	GetStats(ctx context.Context) (*RetentionStats, error)
+	CleanupOldExecutions(ctx context.Context, before time.Time) error
+}
+
 // RepositoryManager aggregates all repositories
 type RepositoryManager struct {
-	Config       ConfigRepository
-	List         ListRepository
-	ListEntry    ListEntryRepository
-	TimeRule     TimeRuleRepository
-	QuotaRule    QuotaRuleRepository
-	QuotaUsage   QuotaUsageRepository
-	AuditLog     AuditLogRepository
-	SchemaVersion SchemaVersionRepository
-	Dashboard    DashboardRepository
+	Config             ConfigRepository
+	List               ListRepository
+	ListEntry          ListEntryRepository
+	TimeRule           TimeRuleRepository
+	QuotaRule          QuotaRuleRepository
+	QuotaUsage         QuotaUsageRepository
+	AuditLog           AuditLogRepository
+	RetentionPolicy    RetentionPolicyRepository
+	RetentionExecution RetentionExecutionRepository
+	SchemaVersion      SchemaVersionRepository
+	Dashboard          DashboardRepository
 }
 
 // SearchFilters for advanced queries
@@ -139,4 +167,4 @@ func DefaultSearchFilters() SearchFilters {
 		Limit:  50,
 		Offset: 0,
 	}
-} 
+}

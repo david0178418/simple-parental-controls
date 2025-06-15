@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"parental-control/internal/logging"
 	"parental-control/internal/server"
@@ -51,8 +52,11 @@ func (ah *AuthHandlers) RegisterRoutes(srv *server.Server) {
 		ah.AuthenticationMiddleware(), // Add auth middleware
 	)
 
+	srv.AddHandler("/api/v1/auth/check", protectedMiddleware.ThenFunc(ah.handleAuthCheck))
+
 	srv.AddHandler("/api/v1/auth/me", protectedMiddleware.ThenFunc(ah.handleMe))
 	srv.AddHandler("/api/v1/auth/password/change", protectedMiddleware.ThenFunc(ah.handlePasswordChange))
+	srv.AddHandler("/api/v1/auth/change-password", protectedMiddleware.ThenFunc(ah.handlePasswordChange)) // Alias for frontend compatibility
 	srv.AddHandler("/api/v1/auth/sessions", protectedMiddleware.ThenFunc(ah.handleSessions))
 	srv.AddHandler("/api/v1/auth/sessions/refresh", protectedMiddleware.ThenFunc(ah.handleSessionRefresh))
 	srv.AddHandler("/api/v1/auth/sessions/revoke", protectedMiddleware.ThenFunc(ah.handleSessionRevoke))
@@ -177,6 +181,20 @@ func (ah *AuthHandlers) handleMe(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSONResponse(w, http.StatusOK, userInfo)
 }
 
+// handleAuthCheck returns authentication status
+func (ah *AuthHandlers) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		server.WriteErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// Simple auth status check - user already validated by middleware
+	server.WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"authenticated": true,
+		"timestamp":     time.Now().UTC(),
+	})
+}
+
 // handlePasswordChange processes password change requests
 func (ah *AuthHandlers) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -186,14 +204,33 @@ func (ah *AuthHandlers) handlePasswordChange(w http.ResponseWriter, r *http.Requ
 
 	user := r.Context().Value("user").(*User)
 
-	var req ChangePasswordRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Support both frontend and backend request formats
+	var requestBody map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
 		server.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
+	// Extract current password (support both "current_password" and "old_password")
+	var currentPassword, newPassword string
+	if cp, ok := requestBody["current_password"].(string); ok {
+		currentPassword = cp
+	} else if op, ok := requestBody["old_password"].(string); ok {
+		currentPassword = op
+	} else {
+		server.WriteErrorResponse(w, http.StatusBadRequest, "Missing current/old password")
+		return
+	}
+
+	if np, ok := requestBody["new_password"].(string); ok {
+		newPassword = np
+	} else {
+		server.WriteErrorResponse(w, http.StatusBadRequest, "Missing new password")
+		return
+	}
+
 	// Change password
-	err := ah.securityService.ChangePassword(user.Username, req.CurrentPassword, req.NewPassword)
+	err := ah.securityService.ChangePassword(user.Username, currentPassword, newPassword)
 	if err != nil {
 		server.WriteJSONResponse(w, http.StatusBadRequest, ChangePasswordResponse{
 			Success: false,

@@ -62,8 +62,10 @@ func (api *AuthAPIServer) RegisterRoutes(server *Server) {
 	server.AddHandler("/api/v1/auth/password/strength", baseMiddleware.ThenFunc(api.handlePasswordStrength))
 
 	// Protected authentication endpoints (auth required)
+	server.AddHandler("/api/v1/auth/check", authMiddleware.ThenFunc(api.handleAuthCheck))
 	server.AddHandler("/api/v1/auth/logout", authMiddleware.ThenFunc(api.handleLogout))
 	server.AddHandler("/api/v1/auth/password/change", authMiddleware.ThenFunc(api.handleChangePassword))
+	server.AddHandler("/api/v1/auth/change-password", authMiddleware.ThenFunc(api.handleChangePassword)) // Frontend alias
 	server.AddHandler("/api/v1/auth/profile", authMiddleware.ThenFunc(api.handleProfile))
 
 	// Admin-only endpoints
@@ -222,23 +224,54 @@ func (api *AuthAPIServer) handleChangePassword(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	var req struct {
-		CurrentPassword string `json:"current_password"`
-		NewPassword     string `json:"new_password"`
+	// Support both frontend and backend request formats
+	var requestBody map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+		WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+	// Extract current password (support both "current_password" and "old_password")
+	var currentPassword, newPassword string
+	if cp, ok := requestBody["current_password"].(string); ok {
+		currentPassword = cp
+	} else if op, ok := requestBody["old_password"].(string); ok {
+		currentPassword = op
+	} else {
+		WriteErrorResponse(w, http.StatusBadRequest, "Missing current/old password")
+		return
+	}
+
+	if np, ok := requestBody["new_password"].(string); ok {
+		newPassword = np
+	} else {
+		WriteErrorResponse(w, http.StatusBadRequest, "Missing new password")
 		return
 	}
 
 	logging.Info("Password change request",
 		logging.String("username", user.GetUsername()),
+		logging.Bool("current_password_provided", currentPassword != ""),
+		logging.Bool("new_password_provided", newPassword != ""),
 		logging.String("request_id", getRequestID(r.Context())))
 
 	WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "Password changed successfully",
+	})
+}
+
+// handleAuthCheck returns authentication status
+func (api *AuthAPIServer) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		WriteErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// Simple auth status check - user already validated by middleware
+	WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"authenticated": true,
+		"timestamp":     time.Now().UTC(),
 	})
 }
 

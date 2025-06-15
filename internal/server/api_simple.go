@@ -29,6 +29,9 @@ func (api *SimpleAPIServer) RegisterRoutes(server *Server) {
 	// Basic endpoints for testing
 	server.AddHandler("/api/v1/ping", apiMiddleware.ThenFunc(api.handlePing))
 	server.AddHandler("/api/v1/info", apiMiddleware.ThenFunc(api.handleInfo))
+
+	// Authentication endpoints (work without auth service enabled)
+	server.AddHandler("/api/v1/auth/check", apiMiddleware.ThenFunc(api.handleAuthCheck))
 }
 
 // handlePing returns a simple ping response
@@ -44,6 +47,21 @@ func (api *SimpleAPIServer) handlePing(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleAuthCheck returns authentication status (mock response when auth disabled)
+func (api *SimpleAPIServer) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		WriteErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// Return mock authenticated status since auth is disabled
+	WriteJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"authenticated": true,
+		"timestamp":     time.Now().UTC(),
+		"note":          "Authentication disabled - mock response",
+	})
+}
+
 // handleInfo returns basic server information
 func (api *SimpleAPIServer) handleInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -56,10 +74,11 @@ func (api *SimpleAPIServer) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"version":   "1.0.0",
 		"timestamp": time.Now(),
 		"endpoints": map[string]string{
-			"ping":   "/api/v1/ping",
-			"info":   "/api/v1/info",
-			"health": "/health",
-			"status": "/status",
+			"ping":       "/api/v1/ping",
+			"info":       "/api/v1/info",
+			"auth_check": "/api/v1/auth/check",
+			"health":     "/health",
+			"status":     "/status",
 		},
 	}
 

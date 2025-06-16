@@ -1,0 +1,988 @@
+openapi: 3.0.3
+info:
+  title: Parental Control Management API
+  description: |
+    Comprehensive API for managing parental control lists, rules, and configurations.
+    
+    **Authentication Status**: Currently disabled by default
+    **Current Implementation**: Partial - Authentication and Dashboard only
+    **Missing**: Core CRUD operations for lists, rules, audit logs, and configuration
+  version: 1.0.0
+  contact:
+    name: API Contract Audit
+    url: https://github.com/parental-control/api-docs
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://192.168.1.24:8080
+    description: Local development server
+  - url: https://api.parental-control.local
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: User authentication and session management
+  - name: Dashboard
+    description: Dashboard statistics and system information
+  - name: Lists
+    description: Parental control list management
+  - name: List Entries
+    description: Individual entries within lists
+  - name: Time Rules
+    description: Time-based access control rules
+  - name: Quota Rules
+    description: Quota-based access control rules
+  - name: Audit Logs
+    description: System activity and audit logging
+  - name: Configuration
+    description: System configuration management
+  - name: System
+    description: System utilities and health checks
+
+paths:
+  # Authentication Endpoints
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: User login
+      description: Authenticate user and create session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: admin
+                password:
+                  type: string
+                  example: password123
+                remember_me:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Login successful
+        '401':
+          description: Invalid credentials
+        '500':
+          description: Internal server error
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: User logout
+      description: Invalidate current session
+      responses:
+        '200':
+          description: Logout successful
+
+  /api/v1/auth/check:
+    get:
+      tags: [Authentication]
+      summary: Check authentication status
+      description: Verify if user is currently authenticated
+      responses:
+        '200':
+          description: Authentication status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authenticated:
+                    type: boolean
+                  timestamp:
+                    type: string
+                    format: date-time
+                  note:
+                    type: string
+                    example: "Authentication disabled - mock response"
+
+  /api/v1/auth/change-password:
+    post:
+      tags: [Authentication]
+      summary: Change user password
+      description: Change current user's password
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_password]
+              properties:
+                old_password:
+                  type: string
+                  description: Current password (frontend format)
+                current_password:
+                  type: string
+                  description: Current password (backend format)
+                new_password:
+                  type: string
+                  description: New password
+      responses:
+        '200':
+          description: Password changed successfully
+        '400':
+          description: Invalid request or password requirements not met
+        '401':
+          description: Authentication required
+
+  # Dashboard Endpoints
+  /api/v1/dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: Get dashboard statistics
+      description: Retrieve overview statistics for the dashboard
+      responses:
+        '200':
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_lists:
+                    type: integer
+                  total_entries:
+                    type: integer
+                  active_rules:
+                    type: integer
+                  today_blocks:
+                    type: integer
+                  today_allows:
+                    type: integer
+                  quotas_near_limit:
+                    type: integer
+
+  # Lists Management
+  /api/v1/lists:
+    get:
+      tags: [Lists]
+      summary: Get all lists
+      description: Retrieve all parental control lists
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search term for filtering lists
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Filter by list category
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+          description: Maximum number of results
+      responses:
+        '200':
+          description: List of parental control lists
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/List'
+        '500':
+          description: Internal server error
+
+    post:
+      tags: [Lists]
+      summary: Create new list
+      description: Create a new parental control list
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListRequest'
+      responses:
+        '201':
+          description: List created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/List'
+        '400':
+          description: Invalid request data
+        '401':
+          description: Authentication required
+
+  /api/v1/lists/{id}:
+    get:
+      tags: [Lists]
+      summary: Get list by ID
+      description: Retrieve a specific parental control list
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: List ID
+      responses:
+        '200':
+          description: Parental control list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/List'
+        '404':
+          description: List not found
+
+    put:
+      tags: [Lists]
+      summary: Update list
+      description: Update an existing parental control list
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateListRequest'
+      responses:
+        '200':
+          description: List updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/List'
+        '400':
+          description: Invalid request data
+        '401':
+          description: Authentication required
+        '404':
+          description: List not found
+
+    delete:
+      tags: [Lists]
+      summary: Delete list
+      description: Delete a parental control list
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: List deleted successfully
+        '401':
+          description: Authentication required
+        '404':
+          description: List not found
+
+  # List Entries
+  /api/v1/lists/{listId}/entries:
+    get:
+      tags: [List Entries]
+      summary: Get list entries
+      description: Retrieve all entries for a specific list
+      parameters:
+        - name: listId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ListEntry'
+
+    post:
+      tags: [List Entries]
+      summary: Create list entry
+      description: Add a new entry to a list
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: listId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListEntryRequest'
+      responses:
+        '201':
+          description: Entry created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListEntry'
+
+  /api/v1/entries/{id}:
+    put:
+      tags: [List Entries]
+      summary: Update entry
+      description: Update an existing list entry
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateListEntryRequest'
+      responses:
+        '200':
+          description: Entry updated successfully
+
+    delete:
+      tags: [List Entries]
+      summary: Delete entry
+      description: Delete a list entry
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Entry deleted successfully
+
+  # Time Rules
+  /api/v1/time-rules:
+    get:
+      tags: [Time Rules]
+      summary: Get all time rules
+      description: Retrieve all time-based access rules
+      responses:
+        '200':
+          description: Time rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimeRule'
+
+  /api/v1/lists/{listId}/time-rules:
+    get:
+      tags: [Time Rules]
+      summary: Get time rules for list
+      description: Retrieve time rules for a specific list
+      parameters:
+        - name: listId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Time rules for the list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimeRule'
+
+    post:
+      tags: [Time Rules]
+      summary: Create time rule
+      description: Create a new time rule for a list
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: listId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTimeRuleRequest'
+      responses:
+        '201':
+          description: Time rule created successfully
+
+  /api/v1/time-rules/{id}:
+    put:
+      tags: [Time Rules]
+      summary: Update time rule
+      description: Update an existing time rule
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTimeRuleRequest'
+      responses:
+        '200':
+          description: Time rule updated successfully
+
+    delete:
+      tags: [Time Rules]
+      summary: Delete time rule
+      description: Delete a time rule
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Time rule deleted successfully
+
+  # Quota Rules (similar pattern to Time Rules)
+  /api/v1/quota-rules:
+    get:
+      tags: [Quota Rules]
+      summary: Get all quota rules
+      responses:
+        '200':
+          description: Quota rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuotaRule'
+
+  /api/v1/lists/{listId}/quota-rules:
+    get:
+      tags: [Quota Rules]
+      summary: Get quota rules for list
+      parameters:
+        - name: listId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Quota rules for the list
+
+    post:
+      tags: [Quota Rules]
+      summary: Create quota rule
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: listId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQuotaRuleRequest'
+      responses:
+        '201':
+          description: Quota rule created successfully
+
+  /api/v1/quota-rules/{id}:
+    put:
+      tags: [Quota Rules]
+      summary: Update quota rule
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Quota rule updated successfully
+
+    delete:
+      tags: [Quota Rules]
+      summary: Delete quota rule
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Quota rule deleted successfully
+
+  # Quota Usage
+  /api/v1/quota-rules/{quotaRuleId}/usage:
+    get:
+      tags: [Quota Rules]
+      summary: Get quota usage
+      description: Get current usage statistics for a quota rule
+      parameters:
+        - name: quotaRuleId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Quota usage statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuotaUsage'
+
+  /api/v1/quota-rules/{quotaRuleId}/reset:
+    post:
+      tags: [Quota Rules]
+      summary: Reset quota usage
+      description: Reset usage counters for a quota rule
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: quotaRuleId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Quota usage reset successfully
+
+  # Audit Logs
+  /api/v1/audit:
+    get:
+      tags: [Audit Logs]
+      summary: Get audit logs
+      description: Retrieve system audit logs with optional filtering
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: user
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLog'
+
+  # Configuration
+  /api/v1/config:
+    get:
+      tags: [Configuration]
+      summary: Get all configuration
+      description: Retrieve all system configuration settings
+      responses:
+        '200':
+          description: Configuration settings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Config'
+
+  /api/v1/config/{key}:
+    put:
+      tags: [Configuration]
+      summary: Update configuration
+      description: Update a specific configuration setting
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: string
+      responses:
+        '200':
+          description: Configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
+      description: Session-based authentication using HTTP-only cookies
+
+  schemas:
+    # Authentication Schemas
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        session_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+        is_admin:
+          type: boolean
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+
+    # Dashboard Schemas
+    DashboardStats:
+      type: object
+      properties:
+        total_lists:
+          type: integer
+        total_entries:
+          type: integer
+        active_rules:
+          type: integer
+        today_blocks:
+          type: integer
+        today_allows:
+          type: integer
+        quotas_near_limit:
+          type: integer
+
+    # List Management Schemas
+    List:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateListRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        is_active:
+          type: boolean
+          default: true
+
+    UpdateListRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        is_active:
+          type: boolean
+
+    # List Entry Schemas
+    ListEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        list_id:
+          type: integer
+        value:
+          type: string
+        entry_type:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    CreateListEntryRequest:
+      type: object
+      required: [list_id, value]
+      properties:
+        list_id:
+          type: integer
+        value:
+          type: string
+        entry_type:
+          type: string
+        is_active:
+          type: boolean
+          default: true
+
+    UpdateListEntryRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        value:
+          type: string
+        entry_type:
+          type: string
+        is_active:
+          type: boolean
+
+    # Time Rule Schemas
+    TimeRule:
+      type: object
+      properties:
+        id:
+          type: integer
+        list_id:
+          type: integer
+        name:
+          type: string
+        start_time:
+          type: string
+        end_time:
+          type: string
+        days_of_week:
+          type: array
+          items:
+            type: string
+        is_active:
+          type: boolean
+
+    CreateTimeRuleRequest:
+      type: object
+      required: [list_id, name, start_time, end_time]
+      properties:
+        list_id:
+          type: integer
+        name:
+          type: string
+        start_time:
+          type: string
+        end_time:
+          type: string
+        days_of_week:
+          type: array
+          items:
+            type: string
+        is_active:
+          type: boolean
+          default: true
+
+    UpdateTimeRuleRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        start_time:
+          type: string
+        end_time:
+          type: string
+        days_of_week:
+          type: array
+          items:
+            type: string
+        is_active:
+          type: boolean
+
+    # Quota Rule Schemas
+    QuotaRule:
+      type: object
+      properties:
+        id:
+          type: integer
+        list_id:
+          type: integer
+        name:
+          type: string
+        limit_value:
+          type: integer
+        limit_unit:
+          type: string
+        reset_period:
+          type: string
+        is_active:
+          type: boolean
+
+    CreateQuotaRuleRequest:
+      type: object
+      required: [list_id, name, limit_value, limit_unit]
+      properties:
+        list_id:
+          type: integer
+        name:
+          type: string
+        limit_value:
+          type: integer
+        limit_unit:
+          type: string
+        reset_period:
+          type: string
+        is_active:
+          type: boolean
+          default: true
+
+    QuotaUsage:
+      type: object
+      properties:
+        quota_rule_id:
+          type: integer
+        current_usage:
+          type: integer
+        limit_value:
+          type: integer
+        reset_at:
+          type: string
+          format: date-time
+
+    # Audit Log Schemas
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+        user:
+          type: string
+        action:
+          type: string
+        resource:
+          type: string
+        details:
+          type: string
+        ip_address:
+          type: string
+
+    # Configuration Schemas
+    Config:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        is_editable:
+          type: boolean 

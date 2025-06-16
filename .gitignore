@@ -5,3 +5,6 @@ certs/
 *.key
 data/
 parental-control
+parental-control-server
+server
+*.log

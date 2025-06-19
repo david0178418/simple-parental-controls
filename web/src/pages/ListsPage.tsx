@@ -693,19 +693,23 @@ function ListsPage() {
               label="Entry Type"
               onChange={(e) => setEntryForm({ ...entryForm, entry_type: e.target.value as EntryType })}
             >
-              <MenuItem value="executable">Executable</MenuItem>
-              <MenuItem value="url">URL</MenuItem>
+              <MenuItem value="executable">Application Executable</MenuItem>
+              <MenuItem value="url">Website URL</MenuItem>
             </Select>
           </FormControl>
           <TextField
             margin="dense"
-            label="Pattern"
+            label={entryForm.entry_type === 'executable' ? 'Application Name' : 'Website URL or Domain'}
             fullWidth
             variant="outlined"
             value={entryForm.pattern}
             onChange={(e) => setEntryForm({ ...entryForm, pattern: e.target.value })}
             sx={{ mb: 2 }}
-            helperText="The pattern to match (e.g., 'chrome.exe' or '*.example.com')"
+            helperText={
+              entryForm.entry_type === 'executable'
+                ? "e.g., 'chrome.exe' or 'Spotify'"
+                : "e.g., '*.example.com' or 'youtube.com'"
+            }
           />
           <FormControl fullWidth sx={{ mb: 2 }}>
             <InputLabel>Pattern Type</InputLabel>

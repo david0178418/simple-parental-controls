@@ -201,11 +201,12 @@ class ApiClient {
 
   // List Entries API
   public async getListEntries(listId: number): Promise<ListEntry[]> {
-    return this.request<ListEntry[]>(`/api/v1/lists/${listId}/entries`);
+    const response = await this.request<{ entries: ListEntry[] }>(`/api/v1/lists/${listId}/entries`);
+    return response.entries ?? [];
   }
 
   public async createListEntry(entry: CreateListEntryRequest): Promise<ListEntry> {
-    return this.request<ListEntry>(`/api/v1/lists/${entry.list_id}/entries`, {
+    return this.request<ListEntry>('/api/v1/entries', {
       method: 'POST',
       body: JSON.stringify(entry),
     });

@@ -171,7 +171,8 @@ class ApiClient {
     const query = params.toString();
     const endpoint = query ? `/api/v1/lists?${query}` : '/api/v1/lists';
     
-    return this.request<List[]>(endpoint);
+    const response = await this.request<{ lists: List[] }>(endpoint);
+    return response.lists ?? [];
   }
 
   public async getList(id: number): Promise<List> {

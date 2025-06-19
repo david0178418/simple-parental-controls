@@ -105,6 +105,7 @@ type App struct {
 	authAPIServer      *server.AuthAPIServer
 	tlsAPIServer       *server.TLSAPIServer
 	dashboardAPIServer *server.DashboardAPIServer
+	listAPIServer      *server.ListAPIServer
 	securityService    *auth.SecurityService
 	mu                 sync.RWMutex
 }
@@ -162,6 +163,14 @@ func (a *App) Start() error {
 	// Initialize dashboard API server
 	a.dashboardAPIServer = server.NewDashboardAPIServer()
 	a.dashboardAPIServer.RegisterRoutes(a.httpServer)
+
+	// Initialize list API server
+	if a.service != nil {
+		// Get repository manager from service
+		repos := a.service.GetRepositoryManager()
+		a.listAPIServer = server.NewListAPIServer(repos)
+		a.listAPIServer.RegisterRoutes(a.httpServer)
+	}
 
 	// Setup static file server for web dashboard
 	if err := a.setupStaticFileServer(); err != nil {

@@ -198,6 +198,14 @@ func (s *Service) GetStatus() map[string]interface{} {
 		"errors":     len(s.errors),
 	}
 
+	if len(s.errors) > 0 {
+		errorStrings := make([]string, len(s.errors))
+		for i, err := range s.errors {
+			errorStrings[i] = err.Error()
+		}
+		status["error_details"] = errorStrings
+	}
+
 	if s.db != nil {
 		dbStats, err := s.db.GetStats()
 		if err == nil {
@@ -206,6 +214,13 @@ func (s *Service) GetStatus() map[string]interface{} {
 	}
 
 	return status
+}
+
+// GetRepositoryManager returns the repository manager for use by API servers
+func (s *Service) GetRepositoryManager() *models.RepositoryManager {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.repos
 }
 
 // IsHealthy performs a health check and returns the result
@@ -253,10 +268,15 @@ func (s *Service) initializeDatabase() error {
 func (s *Service) initializeRepositories() error {
 	logging.Info("Initializing repositories")
 
-	// TODO: Initialize actual repository implementations
-	// For now, we'll just create the repository manager structure
+	// Get database connection
+	dbConn := s.db.Connection()
+
+	// Initialize actual repository implementations
 	s.repos = &models.RepositoryManager{
-		// Repository implementations will be added in later tasks
+		List:      database.NewListRepository(dbConn),
+		ListEntry: database.NewListEntryRepository(dbConn),
+		AuditLog:  database.NewAuditLogRepository(dbConn),
+		// Other repositories will be added as needed
 	}
 
 	logging.Info("Repositories initialized successfully")

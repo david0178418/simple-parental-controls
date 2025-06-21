@@ -1,6 +1,6 @@
 === API CONTRACT COMPLIANCE TEST ===
 Server: http://192.168.1.24:8080
-Date: Sun Jun 15 09:04:04 PM CDT 2025
+Date: Sat Jun 21 03:51:06 PM CDT 2025
 
 === TESTING AVAILABLE ENDPOINTS ===
 Testing GET /api/v1/auth/check... ✅ AVAILABLE (HTTP 200)
@@ -16,9 +16,9 @@ Testing POST /api/v1/auth/change-password... ⚠️ NOT_ALLOWED (HTTP 405)
 === TESTING MISSING CRITICAL ENDPOINTS ===
 Testing GET /api/v1/lists... ✅ AVAILABLE (HTTP 200)
 Testing POST /api/v1/lists... ❓ UNKNOWN (HTTP 400)
-Testing GET /api/v1/lists/1... ✅ AVAILABLE (HTTP 200)
-Testing PUT /api/v1/lists/1... ✅ AVAILABLE (HTTP 200)
-Testing DELETE /api/v1/lists/1... ✅ AVAILABLE (HTTP 200)
+Testing GET /api/v1/lists/1... 🚨 MISSING_CRITICAL (HTTP 404) - Get specific list
+Testing PUT /api/v1/lists/1... 🚨 MISSING_CRITICAL (HTTP 404) - Update list
+Testing DELETE /api/v1/lists/1... 🚨 MISSING_CRITICAL (HTTP 404) - Delete list
 Testing GET /api/v1/lists/1/entries... 🚨 MISSING_CRITICAL (HTTP 404) - Get list entries
 Testing POST /api/v1/lists/1/entries... ❓ UNKNOWN (HTTP 400)
 Testing PUT /api/v1/entries/1... 🚨 MISSING_CRITICAL (HTTP 404) - Update entry
@@ -44,12 +44,12 @@ Testing GET /api/v1/config... ℹ️ MISSING_MEDIUM (HTTP 404) - Get configurati
 Testing PUT /api/v1/config/test-key... ⚠️ NOT_ALLOWED (HTTP 405)
 
 === SUMMARY REPORT ===
-🚨 CRITICAL endpoints missing: 3
+🚨 CRITICAL endpoints missing: 6
 ⚠️ HIGH priority endpoints missing: 6
 ℹ️ MEDIUM priority endpoints missing: 3
-📊 Total missing endpoints: 12
+📊 Total missing endpoints: 15
 
-❌ CRITICAL FAILURE: 3 essential endpoints missing
+❌ CRITICAL FAILURE: 6 essential endpoints missing
    Frontend functionality will be severely broken
 
 Report saved to: api-contract-test-results.txt

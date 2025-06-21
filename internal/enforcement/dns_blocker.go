@@ -3,293 +3,262 @@ package enforcement
 import (
 	"context"
 	"fmt"
-	"os/exec"
+	"net"
 	"strings"
 	"sync"
 	"time"
+
+	"parental-control/internal/logging"
+
+	"github.com/miekg/dns"
 )
 
-// DNSBlocker handles DNS-level domain blocking
+// DNSBlocker intercepts DNS queries and blocks requests based on rules.
 type DNSBlocker struct {
-	// Configuration
-	hostsFile     string
-	dnsmasqConfig string
-	enabled       bool
+	config  *DNSBlockerConfig
+	logger  logging.Logger
+	manager *DNSManager
+	rules   map[string]*FilterRule
+	rulesMu sync.RWMutex
 
-	// Blocked domains
-	blockedDomains map[string]bool
-	domainsMu      sync.RWMutex
-
-	// Statistics
-	stats   *DNSBlockerStats
-	statsMu sync.RWMutex
-
-	// State management
+	server4   *dns.Server
+	server6   *dns.Server
 	running   bool
 	runningMu sync.RWMutex
+
+	stats   DNSBlockerStats
+	statsMu sync.Mutex
 }
 
-// DNSBlockerStats holds DNS blocking statistics
+// DNSBlockerConfig holds configuration for the DNSBlocker.
+type DNSBlockerConfig struct {
+	ListenAddr    string        `json:"listen_addr"`
+	BlockIPv4     string        `json://geos-regions-source-iso-3166-1.json"json:"block_ipv4"`
+	BlockIPv6     string        `json:"block_ipv6"`
+	UpstreamDNS   []string      `json:"upstream_dns"`
+	CacheTTL      time.Duration `json:"cache_ttl"`
+	EnableLogging bool          `json:"enable_logging"`
+}
+
+// DNSBlockerStats holds statistics about DNS blocking activities.
 type DNSBlockerStats struct {
-	TotalQueries   int64     `json:"total_queries"`
-	BlockedQueries int64     `json:"blocked_queries"`
-	AllowedQueries int64     `json:"allowed_queries"`
-	BlockedDomains int64     `json:"blocked_domains"`
-	LastBlockTime  time.Time `json:"last_block_time"`
-	LastQueryTime  time.Time `json:"last_query_time"`
+	TotalQueries    int64 `json:"total_queries"`
+	BlockedQueries  int64 `json:"blocked_queries"`
+	AllowedQueries  int64 `json:"allowed_queries"`
+	UpstreamLookups int64 `json:"upstream_lookups"`
+	CacheHits       int64 `json:"cache_hits"`
+	Errors          int64 `json:"errors"`
 }
 
-// NewDNSBlocker creates a new DNS blocker
-func NewDNSBlocker() *DNSBlocker {
+// NewDNSBlocker creates a new DNSBlocker.
+func NewDNSBlocker(config *DNSBlockerConfig, logger logging.Logger) (*DNSBlocker, error) {
+	if config.ListenAddr == "" {
+		config.ListenAddr = ":53"
+	}
+	if config.BlockIPv4 == "" {
+		config.BlockIPv4 = "0.0.0.0"
+	}
+	if config.BlockIPv6 == "" {
+		config.BlockIPv6 = "::"
+	}
+	if len(config.UpstreamDNS) == 0 {
+		config.UpstreamDNS = []string{"8.8.8.8:53", "1.1.1.1:53"}
+	}
+
 	return &DNSBlocker{
-		hostsFile:      "/etc/hosts",
-		dnsmasqConfig:  "/etc/dnsmasq.d/parental-control.conf",
-		enabled:        true,
-		blockedDomains: make(map[string]bool),
-		stats:          &DNSBlockerStats{},
-	}
+		config:  config,
+		logger:  logger,
+		manager: NewDNSManager(logger),
+		rules:   make(map[string]*FilterRule),
+	}, nil
 }
 
-// Start starts the DNS blocker
-func (db *DNSBlocker) Start(ctx context.Context) error {
-	db.runningMu.Lock()
-	defer db.runningMu.Unlock()
-
-	if db.running {
-		return fmt.Errorf("DNS blocker already running")
+// Start starts the DNS blocker server.
+func (b *DNSBlocker) Start(ctx context.Context) error {
+	b.runningMu.Lock()
+	if b.running {
+		b.runningMu.Unlock()
+		return fmt.Errorf("DNS blocker is already running")
 	}
 
-	if !db.enabled {
-		return fmt.Errorf("DNS blocker is disabled")
+	if err := b.manager.Setup(); err != nil {
+		b.logger.Error("Failed to set up DNS manager, running without automatic DNS configuration.", logging.Err(err))
 	}
 
-	// Check if we can write to hosts file or dnsmasq config
-	if err := db.checkPermissions(); err != nil {
-		return fmt.Errorf("insufficient permissions for DNS blocking: %w", err)
-	}
+	dns.HandleFunc(".", b.handleDNSRequest)
 
-	db.running = true
+	b.server4 = &dns.Server{Addr: b.config.ListenAddr, Net: "udp4"}
+	b.server6 = &dns.Server{Addr: b.config.ListenAddr, Net: "udp6"}
+
+	b.running = true
+	b.runningMu.Unlock()
+
+	b.logger.Info("Starting DNS blocker", logging.String("address", b.config.ListenAddr))
+
+	go func() {
+		if err := b.server6.ListenAndServe(); err != nil {
+			b.runningMu.RLock()
+			if b.running {
+				b.logger.Error("IPv6 DNS blocker failed", logging.Err(err))
+			}
+			b.runningMu.RUnlock()
+		}
+	}()
+
+	go func() {
+		if err := b.server4.ListenAndServe(); err != nil {
+			b.runningMu.RLock()
+			if b.running {
+				b.logger.Error("IPv4 DNS blocker failed", logging.Err(err))
+			}
+			b.runningMu.RUnlock()
+		}
+	}()
+
 	return nil
 }
 
-// Stop stops the DNS blocker
-func (db *DNSBlocker) Stop() error {
-	db.runningMu.Lock()
-	defer db.runningMu.Unlock()
+// Stop stops the DNS blocker server.
+func (b *DNSBlocker) Stop(ctx context.Context) error {
+	b.runningMu.Lock()
+	defer b.runningMu.Unlock()
 
-	if !db.running {
+	if !b.running {
 		return nil
 	}
 
-	// Clean up any DNS blocking rules
-	db.cleanupDNSBlocking()
-
-	db.running = false
-	return nil
-}
-
-// BlockDomain adds a domain to the DNS block list
-func (db *DNSBlocker) BlockDomain(domain string) error {
-	domain = strings.ToLower(strings.TrimSpace(domain))
-	if domain == "" {
-		return fmt.Errorf("invalid domain")
+	if err := b.manager.Teardown(); err != nil {
+		b.logger.Error("Failed to tear down DNS manager", logging.Err(err))
 	}
 
-	db.domainsMu.Lock()
-	db.blockedDomains[domain] = true
-	db.domainsMu.Unlock()
-
-	return db.applyDNSBlock(domain)
-}
-
-// UnblockDomain removes a domain from the DNS block list
-func (db *DNSBlocker) UnblockDomain(domain string) error {
-	domain = strings.ToLower(strings.TrimSpace(domain))
-
-	db.domainsMu.Lock()
-	delete(db.blockedDomains, domain)
-	db.domainsMu.Unlock()
-
-	return db.removeDNSBlock(domain)
-}
-
-// IsBlocked checks if a domain is blocked
-func (db *DNSBlocker) IsBlocked(domain string) bool {
-	domain = strings.ToLower(strings.TrimSpace(domain))
-
-	db.domainsMu.RLock()
-	defer db.domainsMu.RUnlock()
-
-	return db.blockedDomains[domain]
-}
-
-// GetBlockedDomains returns list of blocked domains
-func (db *DNSBlocker) GetBlockedDomains() []string {
-	db.domainsMu.RLock()
-	defer db.domainsMu.RUnlock()
-
-	domains := make([]string, 0, len(db.blockedDomains))
-	for domain := range db.blockedDomains {
-		domains = append(domains, domain)
+	b.running = false
+	if b.server4 != nil {
+		if err := b.server4.Shutdown(); err != nil {
+			b.logger.Error("Error stopping IPv4 DNS blocker", logging.Err(err))
+		}
 	}
-
-	return domains
-}
-
-// GetStats returns DNS blocking statistics
-func (db *DNSBlocker) GetStats() *DNSBlockerStats {
-	db.statsMu.RLock()
-	defer db.statsMu.RUnlock()
-
-	stats := *db.stats
-	return &stats
-}
-
-// ProcessDNSQuery processes a DNS query and updates statistics
-func (db *DNSBlocker) ProcessDNSQuery(domain string) bool {
-	db.statsMu.Lock()
-	db.stats.TotalQueries++
-	db.stats.LastQueryTime = time.Now()
-	db.statsMu.Unlock()
-
-	if db.IsBlocked(domain) {
-		db.statsMu.Lock()
-		db.stats.BlockedQueries++
-		db.stats.LastBlockTime = time.Now()
-		db.statsMu.Unlock()
-		return true // Blocked
-	}
-
-	db.statsMu.Lock()
-	db.stats.AllowedQueries++
-	db.statsMu.Unlock()
-	return false // Allowed
-}
-
-// isRunning checks if DNS blocker is running
-func (db *DNSBlocker) isRunning() bool {
-	db.runningMu.RLock()
-	defer db.runningMu.RUnlock()
-	return db.running
-}
-
-// checkPermissions verifies DNS blocking permissions
-func (db *DNSBlocker) checkPermissions() error {
-	// Try to check if we can write to hosts file
-	cmd := exec.Command("test", "-w", db.hostsFile)
-	if err := cmd.Run(); err != nil {
-		// Try alternative approach with dnsmasq
-		return db.checkDnsmasqPermissions()
-	}
-
-	return nil
-}
-
-// checkDnsmasqPermissions checks if we can use dnsmasq for DNS blocking
-func (db *DNSBlocker) checkDnsmasqPermissions() error {
-	// Check if dnsmasq is available
-	cmd := exec.Command("which", "dnsmasq")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("dnsmasq not available and cannot write to hosts file")
-	}
-
-	// Check if we can write to dnsmasq config directory
-	cmd = exec.Command("test", "-w", "/etc/dnsmasq.d/")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cannot write to dnsmasq config directory")
-	}
-
-	return nil
-}
-
-// applyDNSBlock applies DNS blocking for a domain using hosts file
-func (db *DNSBlocker) applyDNSBlock(domain string) error {
-	entry := fmt.Sprintf("127.0.0.1 %s", domain)
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' >> %s", entry, db.hostsFile))
-	return cmd.Run()
-}
-
-// removeDNSBlock removes DNS blocking for a domain
-func (db *DNSBlocker) removeDNSBlock(domain string) error {
-	cmd := exec.Command("sed", "-i", fmt.Sprintf("/\\b%s\\b/d", domain), db.hostsFile)
-	return cmd.Run()
-}
-
-// cleanupDNSBlocking removes all DNS blocking rules
-func (db *DNSBlocker) cleanupDNSBlocking() {
-	db.domainsMu.RLock()
-	domains := make([]string, 0, len(db.blockedDomains))
-	for domain := range db.blockedDomains {
-		domains = append(domains, domain)
-	}
-	db.domainsMu.RUnlock()
-
-	// Remove all blocked domains
-	for _, domain := range domains {
-		db.removeDNSBlock(domain)
-	}
-
-	// Clear memory
-	db.domainsMu.Lock()
-	db.blockedDomains = make(map[string]bool)
-	db.domainsMu.Unlock()
-}
-
-// SetEnabled enables or disables DNS blocking
-func (db *DNSBlocker) SetEnabled(enabled bool) {
-	db.enabled = enabled
-}
-
-// IsEnabled returns whether DNS blocking is enabled
-func (db *DNSBlocker) IsEnabled() bool {
-	return db.enabled
-}
-
-// FlushDNSCache flushes the system DNS cache
-func (db *DNSBlocker) FlushDNSCache() error {
-	// Try different methods to flush DNS cache on Linux
-	commands := [][]string{
-		{"systemctl", "flush-dns"},
-		{"systemd-resolve", "--flush-caches"},
-		{"service", "systemd-resolved", "restart"},
-		{"service", "dnsmasq", "restart"},
-		{"nscd", "-i", "hosts"},
-	}
-
-	for _, cmd := range commands {
-		if err := exec.Command(cmd[0], cmd[1:]...).Run(); err == nil {
-			return nil
+	if b.server6 != nil {
+		if err := b.server6.Shutdown(); err != nil {
+			b.logger.Error("Error stopping IPv6 DNS blocker", logging.Err(err))
 		}
 	}
 
-	return fmt.Errorf("failed to flush DNS cache")
+	b.logger.Info("DNS blocker stopped")
+	return nil
 }
 
-// ValidateDomain validates a domain name
-func (db *DNSBlocker) ValidateDomain(domain string) bool {
-	if domain == "" {
-		return false
+// AddRule adds a filtering rule.
+func (b *DNSBlocker) AddRule(rule *FilterRule) error {
+	b.rulesMu.Lock()
+	defer b.rulesMu.Unlock()
+
+	if rule.ID == "" {
+		return fmt.Errorf("rule ID cannot be empty")
 	}
 
-	// Basic domain validation
-	if strings.Contains(domain, " ") {
-		return false
+	b.rules[rule.Pattern] = rule
+	if b.config.EnableLogging {
+		b.logger.Debug("Added DNS rule", logging.String("pattern", rule.Pattern))
+	}
+	return nil
+}
+
+// RemoveRule removes a filtering rule.
+func (b *DNSBlocker) RemoveRule(pattern string) error {
+	b.rulesMu.Lock()
+	defer b.rulesMu.Unlock()
+
+	if _, exists := b.rules[pattern]; !exists {
+		return fmt.Errorf("rule for pattern %s not found", pattern)
+	}
+	delete(b.rules, pattern)
+	return nil
+}
+
+func (b *DNSBlocker) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
+	b.statsMu.Lock()
+	b.stats.TotalQueries++
+	b.statsMu.Unlock()
+
+	q := r.Question[0]
+	domain := strings.TrimSuffix(q.Name, ".")
+
+	if b.shouldBlock(domain) {
+		b.statsMu.Lock()
+		b.stats.BlockedQueries++
+		b.statsMu.Unlock()
+
+		if b.config.EnableLogging {
+			b.logger.Info("Blocked DNS query", logging.String("domain", domain))
+		}
+
+		msg := new(dns.Msg)
+		msg.SetReply(r)
+		msg.Authoritative = true
+
+		blockIPv4 := net.ParseIP(b.config.BlockIPv4)
+		blockIPv6 := net.ParseIP(b.config.BlockIPv6)
+
+		if q.Qtype == dns.TypeA && blockIPv4 != nil {
+			msg.Answer = append(msg.Answer, &dns.A{
+				Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+				A:   blockIPv4,
+			})
+		} else if q.Qtype == dns.TypeAAAA && blockIPv6 != nil {
+			msg.Answer = append(msg.Answer, &dns.AAAA{
+				Hdr:  dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60},
+				AAAA: blockIPv6,
+			})
+		}
+		w.WriteMsg(msg)
+		return
 	}
 
-	if strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") {
-		return false
+	// Forward to upstream DNS
+	b.statsMu.Lock()
+	b.stats.AllowedQueries++
+	b.stats.UpstreamLookups++
+	b.statsMu.Unlock()
+
+	if b.config.EnableLogging {
+		b.logger.Debug("Forwarding DNS query", logging.String("domain", domain))
 	}
 
-	parts := strings.Split(domain, ".")
-	if len(parts) < 2 {
-		return false
-	}
+	client := new(dns.Client)
+	var resp *dns.Msg
+	var err error
 
-	for _, part := range parts {
-		if part == "" {
-			return false
+	for _, upstream := range b.config.UpstreamDNS {
+		resp, _, err = client.Exchange(r, upstream)
+		if err == nil {
+			w.WriteMsg(resp)
+			return
 		}
 	}
 
-	return true
+	b.statsMu.Lock()
+	b.stats.Errors++
+	b.statsMu.Unlock()
+	b.logger.Error("Failed to forward DNS query to any upstream", logging.Err(err))
+	dns.HandleFailed(w, r)
+}
+
+func (b *DNSBlocker) shouldBlock(domain string) bool {
+	b.rulesMu.RLock()
+	defer b.rulesMu.RUnlock()
+
+	for pattern, rule := range b.rules {
+		if !rule.Enabled {
+			continue
+		}
+		if rule.Action != ActionBlock {
+			continue
+		}
+
+		// Simple domain matching for now
+		if strings.HasSuffix(domain, pattern) {
+			return true
+		}
+	}
+	return false
 }

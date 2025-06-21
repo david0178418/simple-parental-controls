@@ -50,6 +50,9 @@ type ServiceConfig struct {
 
 	// ConfigDirectory for configuration files
 	ConfigDirectory string `yaml:"config_directory" json:"config_directory"`
+
+	// DatabaseConfig holds the database configuration
+	DatabaseConfig database.Config `yaml:"database_config" json:"database_config"`
 }
 
 // LoggingConfig holds logging-specific settings

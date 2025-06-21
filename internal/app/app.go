@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -96,18 +97,18 @@ func (a *SecurityServiceAdapter) GetSession(sessionID string) (server.AuthSessio
 	return session, nil
 }
 
-// App coordinates the service and HTTP server
+// App represents the main application
 type App struct {
+	mu                 sync.Mutex
 	config             Config
 	service            *service.Service
+	securityService    *auth.SecurityService
 	httpServer         *server.Server
 	apiServer          *server.SimpleAPIServer
 	authAPIServer      *server.AuthAPIServer
 	tlsAPIServer       *server.TLSAPIServer
 	dashboardAPIServer *server.DashboardAPIServer
 	listAPIServer      *server.ListAPIServer
-	securityService    *auth.SecurityService
-	mu                 sync.RWMutex
 }
 
 // New creates a new application instance
@@ -117,8 +118,8 @@ func New(config Config) *App {
 	}
 }
 
-// Start initializes and starts all components
-func (a *App) Start() error {
+// Start initializes and starts all components of the application
+func (a *App) Start(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -174,13 +175,13 @@ func (a *App) Start() error {
 
 	// Setup static file server for web dashboard
 	if err := a.setupStaticFileServer(); err != nil {
-		a.service.Stop()
+		a.service.Stop(ctx)
 		return fmt.Errorf("failed to setup static file server: %w", err)
 	}
 
 	// Start HTTP server
-	if err := a.httpServer.Start(); err != nil {
-		a.service.Stop()
+	if err := a.httpServer.Start(ctx); err != nil {
+		a.service.Stop(ctx)
 		return fmt.Errorf("failed to start HTTP server: %w", err)
 	}
 
@@ -192,7 +193,7 @@ func (a *App) Start() error {
 }
 
 // Stop gracefully shuts down all components
-func (a *App) Stop() error {
+func (a *App) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -202,7 +203,7 @@ func (a *App) Stop() error {
 
 	// Stop HTTP server first
 	if a.httpServer != nil {
-		if err := a.httpServer.Stop(); err != nil {
+		if err := a.httpServer.Stop(ctx); err != nil {
 			logging.Error("Error stopping HTTP server", logging.Err(err))
 			stopErrors = append(stopErrors, err)
 		}
@@ -210,7 +211,7 @@ func (a *App) Stop() error {
 
 	// Stop service
 	if a.service != nil {
-		if err := a.service.Stop(); err != nil {
+		if err := a.service.Stop(ctx); err != nil {
 			logging.Error("Error stopping service", logging.Err(err))
 			stopErrors = append(stopErrors, err)
 		}
@@ -233,8 +234,8 @@ func (a *App) Wait() {
 
 // GetStatus returns the application status
 func (a *App) GetStatus() map[string]interface{} {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	status := map[string]interface{}{
 		"app": map[string]interface{}{
@@ -272,8 +273,8 @@ func (a *App) GetStatus() map[string]interface{} {
 
 // IsRunning returns whether the application is running
 func (a *App) IsRunning() bool {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	serviceRunning := a.service != nil && a.service.GetState() == service.StateRunning
 	serverRunning := a.httpServer != nil && a.httpServer.IsRunning()
@@ -283,8 +284,8 @@ func (a *App) IsRunning() bool {
 
 // IsHealthy performs a health check
 func (a *App) IsHealthy() error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	if a.service != nil {
 		if err := a.service.IsHealthy(); err != nil {
@@ -300,23 +301,23 @@ func (a *App) IsHealthy() error {
 }
 
 // Restart restarts the entire application
-func (a *App) Restart() error {
+func (a *App) Restart(ctx context.Context) error {
 	logging.Info("Restarting application")
 
-	if err := a.Stop(); err != nil {
+	if err := a.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop application during restart: %w", err)
 	}
 
 	// Brief pause before restart
 	time.Sleep(1 * time.Second)
 
-	return a.Start()
+	return a.Start(ctx)
 }
 
 // GetHTTPAddress returns the HTTP server address
 func (a *App) GetHTTPAddress() string {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	if a.httpServer != nil {
 		return a.httpServer.GetAddress()
@@ -326,9 +327,16 @@ func (a *App) GetHTTPAddress() string {
 
 // GetSecurityService returns the security service (for admin/debugging purposes)
 func (a *App) GetSecurityService() *auth.SecurityService {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.securityService
+}
+
+// GetService returns the underlying service instance
+func (a *App) GetService() *service.Service {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.service
 }
 
 // setupStaticFileServer sets up the static file server for the web dashboard

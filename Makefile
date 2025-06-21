@@ -30,6 +30,9 @@ PROD_BUILD_FLAGS = $(PROD_LDFLAGS)
 BUILD_DIR = build
 CMD_DIR = cmd/parental-control
 
+# Find all Go source files
+GO_FILES = $(shell find . -name '*.go')
+
 .PHONY: all build build-prod clean test deps tidy lint fmt help
 .PHONY: build-linux build-windows build-cross
 .PHONY: run install uninstall version
@@ -47,11 +50,11 @@ $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 # Build for current platform
-build: $(BUILD_DIR) ## Build binary for current platform
+build: $(GO_FILES) $(BUILD_DIR) ## Build binary for current platform
 	$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)
 
 # Production build (optimized)
-build-prod: $(BUILD_DIR) ## Build optimized binary for current platform
+build-prod: $(GO_FILES) $(BUILD_DIR) ## Build optimized binary for current platform
 	$(GOBUILD) $(PROD_BUILD_FLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)
 
 # Cross-platform builds

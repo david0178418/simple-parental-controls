@@ -94,7 +94,7 @@ func New(config Config) *Server {
 }
 
 // Start starts the HTTP server and optionally HTTPS server
-func (s *Server) Start() error {
+func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -132,6 +132,20 @@ func (s *Server) Start() error {
 			logging.String("address", s.listener.Addr().String()),
 			logging.Bool("lan_only", s.config.BindToLAN))
 	}
+
+	go func() {
+		<-ctx.Done()
+		s.Stop(context.Background()) // Fallback stop
+	}()
+
+	go func() {
+		if s.config.TLS.Enabled {
+			// Start HTTPS server if TLS is enabled
+			if err := s.startHTTPSServer(); err != nil {
+				logging.Error("HTTPS server start error", logging.Err(err))
+			}
+		}
+	}()
 
 	return nil
 }
@@ -247,7 +261,7 @@ func (s *Server) startHTTPServer() error {
 }
 
 // Stop gracefully shuts down the HTTP and HTTPS servers
-func (s *Server) Stop() error {
+func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -258,14 +272,14 @@ func (s *Server) Stop() error {
 	logging.Info("Shutting down servers")
 
 	// Create shutdown context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	var shutdownErrors []error
 
 	// Shutdown HTTPS server if running
 	if s.httpsServer != nil {
-		if err := s.httpsServer.Shutdown(ctx); err != nil {
+		if err := s.httpsServer.Shutdown(shutdownCtx); err != nil {
 			logging.Error("HTTPS server shutdown error", logging.Err(err))
 			shutdownErrors = append(shutdownErrors, err)
 		}
@@ -275,7 +289,7 @@ func (s *Server) Stop() error {
 
 	// Shutdown HTTP server if running
 	if s.httpServer != nil {
-		if err := s.httpServer.Shutdown(ctx); err != nil {
+		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 			logging.Error("HTTP server shutdown error", logging.Err(err))
 			shutdownErrors = append(shutdownErrors, err)
 		}

@@ -140,11 +140,7 @@ func (s *Service) Start() error {
 }
 
 // Stop gracefully shuts down the service
-func (s *Service) Stop() error {
-	if s.getState() == StateStopped {
-		return nil
-	}
-
+func (s *Service) Stop(ctx context.Context) error {
 	s.setState(StateStopping)
 	logging.Info("Stopping Parental Control Service")
 
@@ -152,7 +148,7 @@ func (s *Service) Stop() error {
 	s.cancel()
 
 	// Create a timeout context for shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), s.config.ShutdownTimeout)
+	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, s.config.ShutdownTimeout)
 	defer shutdownCancel()
 
 	// Cleanup in reverse order of initialization
@@ -168,7 +164,7 @@ func (s *Service) Stop() error {
 func (s *Service) Restart() error {
 	logging.Info("Restarting service")
 
-	if err := s.Stop(); err != nil {
+	if err := s.Stop(context.Background()); err != nil {
 		return fmt.Errorf("failed to stop service during restart: %w", err)
 	}
 
@@ -218,8 +214,6 @@ func (s *Service) GetStatus() map[string]interface{} {
 
 // GetRepositoryManager returns the repository manager for use by API servers
 func (s *Service) GetRepositoryManager() *models.RepositoryManager {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
 	return s.repos
 }
 
@@ -244,7 +238,7 @@ func (s *Service) Wait() {
 	<-s.ctx.Done()
 }
 
-// initializeDatabase sets up the database connection and schema
+// initializeDatabase creates the database connection and runs migrations
 func (s *Service) initializeDatabase() error {
 	logging.Info("Initializing database connection")
 
@@ -253,6 +247,7 @@ func (s *Service) initializeDatabase() error {
 		return fmt.Errorf("failed to create database connection: %w", err)
 	}
 
+	logging.Info("Initializing database schema")
 	if err := db.InitializeSchema(); err != nil {
 		db.Close()
 		return fmt.Errorf("failed to initialize database schema: %w", err)
@@ -264,7 +259,7 @@ func (s *Service) initializeDatabase() error {
 	return nil
 }
 
-// initializeRepositories sets up the repository manager
+// initializeRepositories creates the repository manager
 func (s *Service) initializeRepositories() error {
 	logging.Info("Initializing repositories")
 
@@ -319,7 +314,7 @@ func (s *Service) setupSignalHandling() {
 		sig := <-signals
 		logging.Info("Received shutdown signal", logging.String("signal", sig.String()))
 
-		if err := s.Stop(); err != nil {
+		if err := s.Stop(context.Background()); err != nil {
 			logging.Error("Error during shutdown", logging.Err(err))
 			os.Exit(1)
 		}

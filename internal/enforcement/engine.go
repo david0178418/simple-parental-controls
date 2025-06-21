@@ -162,11 +162,32 @@ func (ee *EnforcementEngine) Start(ctx context.Context) error {
 
 // Stop stops the enforcement engine gracefully
 func (ee *EnforcementEngine) Stop(ctx context.Context) error {
+	ee.runningMu.Lock()
+	defer ee.runningMu.Unlock()
+
+	if !ee.running {
+		return nil
+	}
+
 	ee.logger.Info("Stopping enforcement engine")
 
 	// Signal all goroutines to stop
 	close(ee.stopCh)
 	ee.cancel()
+
+	// Stop DNS blocker first to clean up network rules
+	if ee.dnsBlocker != nil {
+		if err := ee.dnsBlocker.Stop(ctx); err != nil {
+			ee.logger.Error("Error stopping DNS blocker", logging.Err(err))
+		}
+	}
+
+	// Stop process monitor
+	if ee.processMonitor != nil {
+		if err := ee.processMonitor.Stop(); err != nil {
+			ee.logger.Error("Error stopping process monitor", logging.Err(err))
+		}
+	}
 
 	// Wait for all goroutines to finish
 	done := make(chan struct{})
@@ -183,6 +204,7 @@ func (ee *EnforcementEngine) Stop(ctx context.Context) error {
 		return fmt.Errorf("enforcement engine shutdown timed out")
 	}
 
+	ee.running = false
 	return nil
 }
 

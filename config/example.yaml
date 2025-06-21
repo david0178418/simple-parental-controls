@@ -1,0 +1,85 @@
+# Parental Control Service Configuration
+# Copy this file to config.yaml and modify as needed
+
+service:
+  pid_file: "./data/parental-control.pid"
+  shutdown_timeout: 30s
+  health_check_interval: 30s
+  data_directory: "./data"
+  config_directory: "./config"
+
+database:
+  path: "./data/parental-control.db"
+  max_connections: 10
+  connection_timeout: 30s
+  busy_timeout: 30s
+  enable_wal: true
+  enable_foreign_keys: true
+
+logging:
+  level: "INFO"           # DEBUG, INFO, WARN, ERROR, FATAL
+  format: "text"          # text, json
+  output: "stdout"        # stdout, stderr, or file path
+  enable_timestamp: true
+  enable_caller: false
+
+web:
+  enabled: true
+  port: 8080
+  host: "localhost"
+  static_dir: "./web/build"
+  tls_enabled: false
+  tls_cert_file: ""
+  tls_key_file: ""
+  tls_auto_generate: true
+  tls_cert_dir: "./certs"
+  tls_hostname: "localhost"
+  tls_redirect_http: false
+  https_port: 8443
+
+security:
+  enable_auth: false
+  admin_password: "admin123"  # Change this!
+  session_secret: ""          # Auto-generated if empty
+  session_timeout: 24h
+  max_failed_attempts: 5
+  lockout_duration: 15m
+  bcrypt_cost: 12
+  min_password_length: 8
+  require_uppercase: true
+  require_lowercase: true
+  require_numbers: true
+  require_special_chars: true
+  password_history_size: 5
+  password_expire_days: 90
+  login_rate_limit: 10
+  remember_me_duration: 720h  # 30 days
+  allow_multiple_sessions: false
+  max_sessions: 3
+
+monitoring:
+  enabled: false
+  metrics_port: 9090
+  metrics_path: "/metrics"
+  health_check_path: "/health"
+
+enforcement:
+  enabled: true
+  process_poll_interval: 10s
+  enable_network_filtering: true
+  max_concurrent_checks: 5
+  cache_timeout: 30s
+  block_unknown_processes: false  # Set to true for stricter control
+  log_all_activity: true
+  enable_emergency_mode: true
+  emergency_whitelist:
+    - "192.168.1.1"      # Router IP
+    - "2001:db8::1"      # IPv6 example
+  dns_listen_addr: "0.0.0.0"
+  dns_block_ipv4: "0.0.0.0"
+  dns_block_ipv6: "::"
+  dns_upstream_servers:
+    - "8.8.8.8"
+    - "2001:4860:4860::8888"
+  dns_cache_ttl: 300s
+  dns_enable_logging: true 

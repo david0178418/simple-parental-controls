@@ -78,7 +78,7 @@ func main() {
 	}
 
 	// Initialize and start the enforcement engine
-	engineConfig := &enforcement.EnforcementConfig{} // Use an empty config to get defaults
+	engineConfig := convertToEnforcementConfig(appConfig.Enforcement)
 	enforcementEngine := enforcement.NewEnforcementEngine(engineConfig, logger, nil)
 	if err := enforcementEngine.Start(ctx); err != nil {
 		logging.Error("Failed to start enforcement engine, blocking is not active", logging.Err(err))
@@ -112,6 +112,20 @@ func main() {
 	}
 
 	logging.Info("Application stopped.")
+}
+
+// convertToEnforcementConfig converts config.EnforcementConfig to enforcement.EnforcementConfig
+func convertToEnforcementConfig(cfg config.EnforcementConfig) *enforcement.EnforcementConfig {
+	return &enforcement.EnforcementConfig{
+		ProcessPollInterval:    cfg.ProcessPollInterval,
+		EnableNetworkFiltering: cfg.EnableNetworkFiltering,
+		MaxConcurrentChecks:    cfg.MaxConcurrentChecks,
+		CacheTimeout:           cfg.CacheTimeout,
+		BlockUnknownProcesses:  cfg.BlockUnknownProcesses,
+		LogAllActivity:         cfg.LogAllActivity,
+		EnableEmergencyMode:    cfg.EnableEmergencyMode,
+		EmergencyWhitelist:     cfg.EmergencyWhitelist,
+	}
 }
 
 func loadRulesIntoEngine(ctx context.Context, appService *service.Service, engine *enforcement.EnforcementEngine) {

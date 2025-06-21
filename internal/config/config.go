@@ -32,6 +32,9 @@ type Config struct {
 
 	// Monitoring configuration
 	Monitoring MonitoringConfig `yaml:"monitoring" json:"monitoring"`
+
+	// Enforcement configuration
+	Enforcement EnforcementConfig `yaml:"enforcement" json:"enforcement"`
 }
 
 // ServiceConfig holds service-specific settings
@@ -166,6 +169,44 @@ type MonitoringConfig struct {
 	HealthCheckPath string `yaml:"health_check_path" json:"health_check_path"`
 }
 
+// EnforcementConfig holds enforcement engine settings
+type EnforcementConfig struct {
+	// Enabled indicates if enforcement is enabled
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// ProcessPollInterval for process monitoring
+	ProcessPollInterval time.Duration `yaml:"process_poll_interval" json:"process_poll_interval"`
+
+	// EnableNetworkFiltering enables network filtering
+	EnableNetworkFiltering bool `yaml:"enable_network_filtering" json:"enable_network_filtering"`
+
+	// MaxConcurrentChecks limits concurrent enforcement checks
+	MaxConcurrentChecks int `yaml:"max_concurrent_checks" json:"max_concurrent_checks"`
+
+	// CacheTimeout for enforcement cache
+	CacheTimeout time.Duration `yaml:"cache_timeout" json:"cache_timeout"`
+
+	// BlockUnknownProcesses blocks unidentified processes
+	BlockUnknownProcesses bool `yaml:"block_unknown_processes" json:"block_unknown_processes"`
+
+	// LogAllActivity logs all enforcement activity
+	LogAllActivity bool `yaml:"log_all_activity" json:"log_all_activity"`
+
+	// EnableEmergencyMode allows emergency bypass
+	EnableEmergencyMode bool `yaml:"enable_emergency_mode" json:"enable_emergency_mode"`
+
+	// EmergencyWhitelist for emergency bypass
+	EmergencyWhitelist []string `yaml:"emergency_whitelist" json:"emergency_whitelist"`
+
+	// DNS configuration
+	DNSListenAddr      string        `yaml:"dns_listen_addr" json:"dns_listen_addr"`
+	DNSBlockIPv4       string        `yaml:"dns_block_ipv4" json:"dns_block_ipv4"`
+	DNSBlockIPv6       string        `yaml:"dns_block_ipv6" json:"dns_block_ipv6"`
+	DNSUpstreamServers []string      `yaml:"dns_upstream_servers" json:"dns_upstream_servers"`
+	DNSCacheTTL        time.Duration `yaml:"dns_cache_ttl" json:"dns_cache_ttl"`
+	DNSEnableLogging   bool          `yaml:"dns_enable_logging" json:"dns_enable_logging"`
+}
+
 // Default returns a configuration with sensible defaults
 func Default() *Config {
 	return &Config{
@@ -223,6 +264,23 @@ func Default() *Config {
 			MetricsPort:     9090,
 			MetricsPath:     "/metrics",
 			HealthCheckPath: "/health",
+		},
+		Enforcement: EnforcementConfig{
+			Enabled:                true,
+			ProcessPollInterval:    10 * time.Second,
+			EnableNetworkFiltering: true,
+			MaxConcurrentChecks:    5,
+			CacheTimeout:           30 * time.Second,
+			BlockUnknownProcesses:  true,
+			LogAllActivity:         true,
+			EnableEmergencyMode:    true,
+			EmergencyWhitelist:     []string{"192.168.1.1", "2001:db8::1"},
+			DNSListenAddr:          "0.0.0.0",
+			DNSBlockIPv4:           "0.0.0.0",
+			DNSBlockIPv6:           "::",
+			DNSUpstreamServers:     []string{"8.8.8.8", "2001:4860:4860::8888"},
+			DNSCacheTTL:            300 * time.Second,
+			DNSEnableLogging:       true,
 		},
 	}
 }
@@ -453,6 +511,73 @@ func applyEnvironmentOverrides(config *Config) error {
 		config.Monitoring.HealthCheckPath = val
 	}
 
+	// Enforcement configuration
+	if val := os.Getenv("PC_ENFORCEMENT_ENABLED"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Enforcement.Enabled = enabled
+		}
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_PROCESS_POLL_INTERVAL"); val != "" {
+		if duration, err := time.ParseDuration(val); err == nil {
+			config.Enforcement.ProcessPollInterval = duration
+		}
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_ENABLE_NETWORK_FILTERING"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Enforcement.EnableNetworkFiltering = enabled
+		}
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_MAX_CONCURRENT_CHECKS"); val != "" {
+		if parsed, err := parseIntFromEnv(val); err == nil {
+			config.Enforcement.MaxConcurrentChecks = parsed
+		}
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_CACHE_TIMEOUT"); val != "" {
+		if duration, err := time.ParseDuration(val); err == nil {
+			config.Enforcement.CacheTimeout = duration
+		}
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_BLOCK_UNKNOWN_PROCESSES"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Enforcement.BlockUnknownProcesses = enabled
+		}
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_LOG_ALL_ACTIVITY"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Enforcement.LogAllActivity = enabled
+		}
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_ENABLE_EMERGENCY_MODE"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Enforcement.EnableEmergencyMode = enabled
+		}
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_EMERGENCY_WHITELIST"); val != "" {
+		config.Enforcement.EmergencyWhitelist = strings.Split(val, ",")
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_DNS_LISTEN_ADDR"); val != "" {
+		config.Enforcement.DNSListenAddr = val
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_DNS_BLOCK_IPv4"); val != "" {
+		config.Enforcement.DNSBlockIPv4 = val
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_DNS_BLOCK_IPv6"); val != "" {
+		config.Enforcement.DNSBlockIPv6 = val
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_DNS_UPSTREAM_SERVERS"); val != "" {
+		config.Enforcement.DNSUpstreamServers = strings.Split(val, ",")
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_DNS_CACHE_TTL"); val != "" {
+		if duration, err := time.ParseDuration(val); err == nil {
+			config.Enforcement.DNSCacheTTL = duration
+		}
+	}
+	if val := os.Getenv("PC_ENFORCEMENT_DNS_ENABLE_LOGGING"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Enforcement.DNSEnableLogging = enabled
+		}
+	}
+
 	return nil
 }
 
@@ -604,6 +729,39 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate enforcement configuration
+	if c.Enforcement.Enabled {
+		if c.Enforcement.ProcessPollInterval <= 0 {
+			errors = append(errors, "enforcement.process_poll_interval must be positive")
+		}
+		if c.Enforcement.EnableNetworkFiltering {
+			if c.Enforcement.MaxConcurrentChecks <= 0 {
+				errors = append(errors, "enforcement.max_concurrent_checks must be positive when network filtering is enabled")
+			}
+		}
+		if c.Enforcement.CacheTimeout <= 0 {
+			errors = append(errors, "enforcement.cache_timeout must be positive")
+		}
+		if c.Enforcement.BlockUnknownProcesses {
+			if c.Enforcement.DNSListenAddr == "" {
+				errors = append(errors, "enforcement.dns_listen_addr is required when blocking unknown processes is enabled")
+			}
+		}
+		if c.Enforcement.LogAllActivity {
+			if c.Enforcement.EnableEmergencyMode {
+				errors = append(errors, "enforcement.enable_emergency_mode cannot be true when logging all activity is enabled")
+			}
+		}
+		if c.Enforcement.EnableEmergencyMode {
+			if len(c.Enforcement.EmergencyWhitelist) == 0 {
+				errors = append(errors, "enforcement.emergency_whitelist must not be empty when emergency mode is enabled")
+			}
+		}
+		if c.Enforcement.EnableEmergencyMode && c.Enforcement.DNSListenAddr == "" {
+			errors = append(errors, "enforcement.dns_listen_addr is required when emergency mode is enabled")
+		}
+	}
+
 	if len(errors) > 0 {
 		return fmt.Errorf("validation errors: %s", strings.Join(errors, "; "))
 	}
@@ -666,6 +824,11 @@ func (c *Config) GetSecurityConfig() SecurityConfig {
 // GetMonitoringConfig returns the monitoring configuration
 func (c *Config) GetMonitoringConfig() MonitoringConfig {
 	return c.Monitoring
+}
+
+// GetEnforcementConfig returns the enforcement configuration
+func (c *Config) GetEnforcementConfig() EnforcementConfig {
+	return c.Enforcement
 }
 
 // parseIntFromEnv parses an integer from environment variable string

@@ -171,14 +171,21 @@ func (ee *EnforcementEngine) Stop(ctx context.Context) error {
 
 	ee.logger.Info("Stopping enforcement engine")
 
+	var shutdownErrors []error
+
 	// Signal all goroutines to stop
-	close(ee.stopCh)
-	ee.cancel()
+	if ee.stopCh != nil {
+		close(ee.stopCh)
+	}
+	if ee.cancel != nil {
+		ee.cancel()
+	}
 
 	// Stop DNS blocker first to clean up network rules
 	if ee.dnsBlocker != nil {
 		if err := ee.dnsBlocker.Stop(ctx); err != nil {
 			ee.logger.Error("Error stopping DNS blocker", logging.Err(err))
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("DNS blocker shutdown failed: %w", err))
 		}
 	}
 
@@ -186,25 +193,33 @@ func (ee *EnforcementEngine) Stop(ctx context.Context) error {
 	if ee.processMonitor != nil {
 		if err := ee.processMonitor.Stop(); err != nil {
 			ee.logger.Error("Error stopping process monitor", logging.Err(err))
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("process monitor shutdown failed: %w", err))
 		}
 	}
 
-	// Wait for all goroutines to finish
+	// Wait for all goroutines to finish with timeout
 	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		ee.wg.Wait()
-		close(done)
 	}()
 
 	select {
 	case <-done:
-		// All goroutines finished
 		ee.logger.Info("All enforcement engine components stopped")
 	case <-ctx.Done():
-		return fmt.Errorf("enforcement engine shutdown timed out")
+		err := fmt.Errorf("enforcement engine shutdown timed out")
+		ee.logger.Error("Shutdown timeout", logging.Err(err))
+		shutdownErrors = append(shutdownErrors, err)
 	}
 
 	ee.running = false
+
+	// Return combined error if any occurred
+	if len(shutdownErrors) > 0 {
+		return fmt.Errorf("enforcement engine shutdown completed with errors: %v", shutdownErrors)
+	}
+
 	return nil
 }
 
@@ -398,20 +413,24 @@ func (ee *EnforcementEngine) statsUpdateLoop(ctx context.Context) {
 
 // updateInternalStats updates internal statistics from components
 func (ee *EnforcementEngine) updateInternalStats() {
+	ee.statsMu.Lock()
+	defer ee.statsMu.Unlock()
+
 	// Update network filter stats if available
 	if ee.dnsBlocker != nil {
-		// Since dnsBlocker is a concrete type, we don't need type assertion
-		// We would add a GetStats() method to DNSBlocker and call it here.
-		// For now, this is a placeholder.
+		dnsStats := ee.dnsBlocker.GetStats()
+		ee.stats.NetworkRequestsTotal = dnsStats.TotalQueries
+		ee.stats.NetworkRequestsBlocked = dnsStats.BlockedQueries
+		ee.stats.NetworkRequestsAllowed = dnsStats.AllowedQueries
 	}
 
 	// Update process monitor stats if available
 	if ee.processMonitor != nil {
-		// Placeholder for process monitor stats
+		// Process monitor stats are updated in real-time in handleProcessEvent
+		// This is a placeholder for any additional process monitor statistics
 	}
 
-	ee.statsMu.Lock()
-	defer ee.statsMu.Unlock()
+	ee.stats.LastEnforcementTime = time.Now()
 }
 
 // incrementErrorCount increments the error count and logs the error
@@ -439,13 +458,6 @@ func (ee *EnforcementEngine) getProcessName(process *ProcessInfo) string {
 		return process.Name
 	}
 	return "unknown"
-}
-
-// networkTrafficHandler handles network traffic events from the interceptor
-func (ee *EnforcementEngine) networkTrafficHandler(ctx context.Context) {
-	defer ee.wg.Done()
-	// This handler is now a stub as we moved to DNS based blocking.
-	// It's kept here to avoid breaking other parts of the code during refactoring.
 }
 
 // Helper methods for audit logging

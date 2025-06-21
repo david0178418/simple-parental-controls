@@ -33,7 +33,7 @@ type DNSBlocker struct {
 // DNSBlockerConfig holds configuration for the DNSBlocker.
 type DNSBlockerConfig struct {
 	ListenAddr    string        `json:"listen_addr"`
-	BlockIPv4     string        `json://geos-regions-source-iso-3166-1.json"json:"block_ipv4"`
+	BlockIPv4     string        `json:"block_ipv4"`
 	BlockIPv6     string        `json:"block_ipv6"`
 	UpstreamDNS   []string      `json:"upstream_dns"`
 	CacheTTL      time.Duration `json:"cache_ttl"`
@@ -261,4 +261,20 @@ func (b *DNSBlocker) shouldBlock(domain string) bool {
 		}
 	}
 	return false
+}
+
+// GetStats returns current DNS blocker statistics
+func (b *DNSBlocker) GetStats() DNSBlockerStats {
+	b.statsMu.Lock()
+	defer b.statsMu.Unlock()
+
+	// Return a copy to prevent race conditions
+	return b.stats
+}
+
+// GetRuleCount returns the number of active rules
+func (b *DNSBlocker) GetRuleCount() int {
+	b.rulesMu.RLock()
+	defer b.rulesMu.RUnlock()
+	return len(b.rules)
 }

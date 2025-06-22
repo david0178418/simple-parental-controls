@@ -14,6 +14,13 @@ import (
 	"parental-control/internal/logging"
 )
 
+// Context key types to avoid collisions
+type middlewareContextKey string
+
+const (
+	requestIDKey middlewareContextKey = "request_id"
+)
+
 // Middleware represents a middleware function
 type Middleware func(http.Handler) http.Handler
 
@@ -48,7 +55,7 @@ func RequestIDMiddleware() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requestID := generateRequestID()
-			ctx := context.WithValue(r.Context(), "request_id", requestID)
+			ctx := context.WithValue(r.Context(), requestIDKey, requestID)
 			r = r.WithContext(ctx)
 
 			w.Header().Set("X-Request-ID", requestID)
@@ -425,7 +432,7 @@ func generateRequestID() string {
 }
 
 func getRequestID(ctx context.Context) string {
-	if id, ok := ctx.Value("request_id").(string); ok {
+	if id, ok := ctx.Value(requestIDKey).(string); ok {
 		return id
 	}
 	return "unknown"

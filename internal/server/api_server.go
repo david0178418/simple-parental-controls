@@ -13,6 +13,14 @@ import (
 	"parental-control/internal/models"
 )
 
+// Context key types to avoid collisions
+type contextKey string
+
+const (
+	authenticatedKey contextKey = "authenticated"
+	userKey          contextKey = "user"
+)
+
 // APIServer handles all REST API endpoints for the application
 type APIServer struct {
 	repos       *models.RepositoryManager
@@ -81,8 +89,8 @@ func (api *APIServer) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !api.authEnabled {
 			// When auth is disabled, add mock user to context
-			ctx := context.WithValue(r.Context(), "authenticated", true)
-			ctx = context.WithValue(ctx, "user", &mockUser{})
+			ctx := context.WithValue(r.Context(), authenticatedKey, true)
+			ctx = context.WithValue(ctx, userKey, &mockUser{})
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -96,8 +104,8 @@ func (api *APIServer) authMiddleware(next http.Handler) http.Handler {
 
 		// For now, accept any non-empty session when auth is enabled
 		// TODO: Implement proper session validation
-		ctx := context.WithValue(r.Context(), "authenticated", true)
-		ctx = context.WithValue(ctx, "user", &mockUser{})
+		ctx := context.WithValue(r.Context(), authenticatedKey, true)
+		ctx = context.WithValue(ctx, userKey, &mockUser{})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

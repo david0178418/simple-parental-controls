@@ -1,8 +1,6 @@
 package auth
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -584,14 +582,6 @@ func (ss *SecurityService) checkRateLimit(ipAddress string) bool {
 
 	entry.attempts++
 	return true
-}
-
-func (ss *SecurityService) generateSessionID() (string, error) {
-	bytes := make([]byte, 32) // 256 bits
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
 }
 
 func (ss *SecurityService) createSessionInternal(userID int, ipAddress, userAgent string, rememberMe bool) (*Session, error) {

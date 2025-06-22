@@ -336,7 +336,7 @@ func TestAuditService_GetAuditLogs(t *testing.T) {
 
 	// Test GetAuditLogs with action filter
 	blockAction := models.ActionTypeBlock
-	logs, totalCount, err = auditService.GetAuditLogs(ctx, AuditLogFilters{
+	logs, _, err = auditService.GetAuditLogs(ctx, AuditLogFilters{
 		Action: &blockAction,
 		Limit:  10,
 		Offset: 0,
@@ -351,7 +351,7 @@ func TestAuditService_GetAuditLogs(t *testing.T) {
 
 	// Test GetAuditLogs with target type filter
 	executableType := models.TargetTypeExecutable
-	logs, totalCount, err = auditService.GetAuditLogs(ctx, AuditLogFilters{
+	logs, _, err = auditService.GetAuditLogs(ctx, AuditLogFilters{
 		TargetType: &executableType,
 		Limit:      10,
 		Offset:     0,

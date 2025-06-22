@@ -537,11 +537,6 @@ func (s *AuditService) isEventTypeEnabled(eventType string) bool {
 	return false
 }
 
-func (s *AuditService) convertFilters(filters AuditLogFilters) AuditLogFilters {
-	// This allows for any filter transformations if needed
-	return filters
-}
-
 func (s *AuditService) getFilteredCount(ctx context.Context, filters AuditLogFilters) (int, error) {
 	if filters.StartTime != nil && filters.EndTime != nil {
 		return s.repos.AuditLog.CountByTimeRange(ctx, *filters.StartTime, *filters.EndTime)

@@ -12,6 +12,13 @@ import (
 	"parental-control/internal/server"
 )
 
+// Context key types to avoid collisions
+type authHandlerContextKey string
+
+const (
+	userContextKey authHandlerContextKey = "user"
+)
+
 // AuthHandlers contains HTTP handlers for authentication endpoints
 type AuthHandlers struct {
 	securityService *SecurityService
@@ -589,7 +596,7 @@ func (ah *AuthHandlers) AuthenticationMiddleware() server.Middleware {
 
 			// Add user to context
 			ctx := r.Context()
-			ctx = context.WithValue(ctx, "user", user)
+			ctx = context.WithValue(ctx, userContextKey, user)
 			r = r.WithContext(ctx)
 
 			next.ServeHTTP(w, r)
@@ -601,7 +608,7 @@ func (ah *AuthHandlers) AuthenticationMiddleware() server.Middleware {
 func (ah *AuthHandlers) AdminMiddleware() server.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user := r.Context().Value("user").(*User)
+			user := r.Context().Value(userContextKey).(*User)
 
 			if !user.IsAdmin {
 				server.WriteErrorResponse(w, http.StatusForbidden, "Admin privileges required")

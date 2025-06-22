@@ -8,6 +8,14 @@ import (
 	"parental-control/internal/logging"
 )
 
+// Context key types to avoid collisions
+type authContextKey string
+
+const (
+	authUserKey    authContextKey = "user"
+	authSessionKey authContextKey = "session"
+)
+
 // AuthService interface to avoid circular import
 type AuthService interface {
 	ValidateSession(sessionID string) (AuthUser, error)
@@ -81,8 +89,8 @@ func (am *AuthMiddleware) RequireAuth() Middleware {
 			}
 
 			// Add user and session to context
-			ctx := context.WithValue(r.Context(), "user", user)
-			ctx = context.WithValue(ctx, "session", session)
+			ctx := context.WithValue(r.Context(), authUserKey, user)
+			ctx = context.WithValue(ctx, authSessionKey, session)
 			r = r.WithContext(ctx)
 
 			next.ServeHTTP(w, r)
@@ -122,7 +130,7 @@ func (am *AuthMiddleware) RequireAdmin() Middleware {
 			}
 
 			// Add user to context
-			ctx := context.WithValue(r.Context(), "user", user)
+			ctx := context.WithValue(r.Context(), authUserKey, user)
 			r = r.WithContext(ctx)
 
 			next.ServeHTTP(w, r)
@@ -196,13 +204,13 @@ func (am *AuthMiddleware) isPublicPath(path string) bool {
 
 // GetUserFromContext extracts the authenticated user from request context
 func GetUserFromContext(ctx context.Context) (AuthUser, bool) {
-	user, ok := ctx.Value("user").(AuthUser)
+	user, ok := ctx.Value(authUserKey).(AuthUser)
 	return user, ok
 }
 
 // GetSessionFromContext extracts the session from request context
 func GetSessionFromContext(ctx context.Context) (AuthSession, bool) {
-	session, ok := ctx.Value("session").(AuthSession)
+	session, ok := ctx.Value(authSessionKey).(AuthSession)
 	return session, ok
 }
 

@@ -29,23 +29,20 @@ type EnforcementEngine struct {
 	runningMu sync.RWMutex
 
 	// Event handling
-	processEvents chan ProcessEvent
-	stopCh        chan struct{}
-	wg            sync.WaitGroup
+	stopCh chan struct{}
+	wg     sync.WaitGroup
 
 	// Logging
 	logger logging.Logger
 
 	// Statistics and monitoring
-	stats      *EnforcementStats
-	statsMu    sync.RWMutex
-	lastUpdate time.Time
+	stats   *EnforcementStats
+	statsMu sync.RWMutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	rules   map[string]*FilterRule
-	rulesMu sync.RWMutex
+	rules map[string]*FilterRule
 }
 
 // EnforcementConfig holds configuration for the enforcement engine
@@ -442,51 +439,4 @@ func (ee *EnforcementEngine) incrementErrorCount(err error) {
 	ee.statsMu.Unlock()
 
 	ee.logger.Error("Enforcement error", logging.Err(err))
-}
-
-// getRuleName safely gets rule name for logging
-func (ee *EnforcementEngine) getRuleName(rule *FilterRule) string {
-	if rule != nil {
-		return rule.Name
-	}
-	return "default"
-}
-
-// getProcessName safely gets process name for logging
-func (ee *EnforcementEngine) getProcessName(process *ProcessInfo) string {
-	if process != nil {
-		return process.Name
-	}
-	return "unknown"
-}
-
-// Helper methods for audit logging
-
-func (ee *EnforcementEngine) getRuleType(rule *FilterRule) string {
-	if rule != nil {
-		// Determine rule type based on rule properties
-		if len(rule.Categories) > 0 {
-			return "category_rule"
-		}
-		switch rule.MatchType {
-		case MatchDomain:
-			return "domain_rule"
-		case MatchWildcard:
-			return "wildcard_rule"
-		case MatchRegex:
-			return "regex_rule"
-		default:
-			return "filter_rule"
-		}
-	}
-	return "default"
-}
-
-func (ee *EnforcementEngine) getRuleIDPtr(rule *FilterRule) *int {
-	if rule != nil && rule.ID != "" {
-		// Try to convert rule ID to int if possible
-		// This is a simplification - in practice, you might want to handle this differently
-		return nil // Return nil for now as FilterRule.ID is a string
-	}
-	return nil
 }

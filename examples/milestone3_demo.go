@@ -29,13 +29,6 @@ func NewDemoRepositoryManager() *DemoRepositoryManager {
 	}
 }
 
-// Simple mock list repository
-func (d *DemoRepositoryManager) getNextID() int {
-	id := d.nextID
-	d.nextID++
-	return id
-}
-
 // This is a demonstration of how the Milestone 3 services work together
 func main() {
 	fmt.Println("=== Milestone 3: Rule Management System Demo ===")
@@ -334,58 +327,4 @@ battle.net`
 	`)
 
 	fmt.Println("\nMilestone 3 implementation is complete! 🎉")
-}
-
-func demonstrateServiceAPIs() {
-	fmt.Println("\n=== Available Service APIs ===")
-
-	apis := map[string][]string{
-		"ListManagementService": {
-			"CreateList(ctx, CreateListRequest) (*List, error)",
-			"GetList(ctx, id) (*ListResponse, error)",
-			"GetAllLists(ctx, listType) ([]ListResponse, error)",
-			"UpdateList(ctx, id, UpdateListRequest) (*List, error)",
-			"DeleteList(ctx, id) error",
-			"ToggleListEnabled(ctx, id) (*List, error)",
-			"DuplicateList(ctx, id, newName) (*List, error)",
-		},
-		"EntryManagementService": {
-			"CreateEntry(ctx, CreateEntryRequest) (*ListEntry, error)",
-			"GetEntry(ctx, id) (*ListEntry, error)",
-			"UpdateEntry(ctx, id, UpdateEntryRequest) (*ListEntry, error)",
-			"DeleteEntry(ctx, id) error",
-			"BulkCreateEntries(ctx, BulkCreateEntriesRequest) (*BulkCreateResult, error)",
-			"ImportEntries(ctx, listID, data, format) (*BulkCreateResult, error)",
-			"ExportEntries(ctx, listID, format) ([]byte, error)",
-			"SearchEntries(ctx, listID, searchTerm, entryType) ([]ListEntry, error)",
-		},
-		"TimeWindowService": {
-			"CreateTimeRule(ctx, CreateTimeRuleRequest) (*TimeRule, error)",
-			"GetTimeRuleStatus(ctx, id) (*TimeRuleStatus, error)",
-			"UpdateTimeRule(ctx, id, UpdateTimeRuleRequest) (*TimeRule, error)",
-			"DeleteTimeRule(ctx, id) error",
-			"IsRuleActiveAt(rule, time) bool",
-			"IsListActiveAt(ctx, listID, time) (bool, error)",
-		},
-		"QuotaService": {
-			"CreateQuotaRule(ctx, CreateQuotaRuleRequest) (*QuotaRule, error)",
-			"GetQuotaRuleStatus(ctx, id) (*QuotaRuleStatus, error)",
-			"UpdateQuotaRule(ctx, id, UpdateQuotaRuleRequest) (*QuotaRule, error)",
-			"TrackUsage(ctx, quotaRuleID, additionalSeconds) error",
-			"CheckQuotaExceeded(ctx, quotaRuleID) (bool, *QuotaRuleStatus, error)",
-			"GetUsageSummary(ctx, listID) ([]UsageSummary, error)",
-		},
-		"RuleValidationService": {
-			"ValidateAllRules(ctx) (*ValidationResult, error)",
-			"ValidateListRules(ctx, listID) (*ValidationResult, error)",
-			"DetectConflictingEntries(ctx, listID) ([]RuleConflict, error)",
-		},
-	}
-
-	for serviceName, methods := range apis {
-		fmt.Printf("\n%s:\n", serviceName)
-		for _, method := range methods {
-			fmt.Printf("  - %s\n", method)
-		}
-	}
 }

@@ -77,38 +77,56 @@ func main() {
 		logging.Fatal("Failed to start application", logging.Err(err))
 	}
 
-	// Initialize and start the enforcement engine
-	engineConfig := convertToEnforcementConfig(appConfig.Enforcement)
-	enforcementEngine := enforcement.NewEnforcementEngine(engineConfig, logger, nil)
-	if err := enforcementEngine.Start(ctx); err != nil {
-		logging.Error("Failed to start enforcement engine, blocking is not active", logging.Err(err))
-	} else {
-		logging.Info("Enforcement engine started")
-		// Load rules into the engine
-		loadRulesIntoEngine(ctx, application.GetService(), enforcementEngine)
-	}
-
-	// Wait for shutdown signal
-	<-ctx.Done()
-
-	logging.Info("Shutting down application...")
-
-	// Create a shutdown context with a timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), appConfig.Service.ShutdownTimeout)
-	defer cancel()
-
-	// Stop enforcement engine first
-	if enforcementEngine.IsRunning() {
-		if err := enforcementEngine.Stop(shutdownCtx); err != nil {
-			logging.Error("Error stopping enforcement engine", logging.Err(err))
+	// Initialize and start the enforcement engine only if enabled
+	if appConfig.Enforcement.Enabled {
+		engineConfig := convertToEnforcementConfig(appConfig.Enforcement)
+		enforcementEngine := enforcement.NewEnforcementEngine(engineConfig, logger, nil)
+		if err := enforcementEngine.Start(ctx); err != nil {
+			logging.Error("Failed to start enforcement engine, blocking is not active", logging.Err(err))
 		} else {
-			logging.Info("Enforcement engine stopped")
+			logging.Info("Enforcement engine started")
+			// Load rules into the engine
+			loadRulesIntoEngine(ctx, application.GetService(), enforcementEngine)
 		}
-	}
 
-	// Stop the main application
-	if err := application.Stop(shutdownCtx); err != nil {
-		logging.Error("Error during application shutdown", logging.Err(err))
+		// Wait for shutdown signal
+		<-ctx.Done()
+
+		logging.Info("Shutting down application...")
+
+		// Create a shutdown context with a timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), appConfig.Service.ShutdownTimeout)
+		defer cancel()
+
+		// Stop enforcement engine first
+		if enforcementEngine.IsRunning() {
+			if err := enforcementEngine.Stop(shutdownCtx); err != nil {
+				logging.Error("Error stopping enforcement engine", logging.Err(err))
+			} else {
+				logging.Info("Enforcement engine stopped")
+			}
+		}
+
+		// Stop the main application
+		if err := application.Stop(shutdownCtx); err != nil {
+			logging.Error("Error during application shutdown", logging.Err(err))
+		}
+	} else {
+		logging.Info("Enforcement engine disabled in configuration")
+
+		// Wait for shutdown signal
+		<-ctx.Done()
+
+		logging.Info("Shutting down application...")
+
+		// Create a shutdown context with a timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), appConfig.Service.ShutdownTimeout)
+		defer cancel()
+
+		// Stop the main application
+		if err := application.Stop(shutdownCtx); err != nil {
+			logging.Error("Error during application shutdown", logging.Err(err))
+		}
 	}
 
 	logging.Info("Application stopped.")

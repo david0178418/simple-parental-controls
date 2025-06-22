@@ -99,16 +99,11 @@ func (a *SecurityServiceAdapter) GetSession(sessionID string) (server.AuthSessio
 
 // App represents the main application
 type App struct {
-	mu                 sync.Mutex
-	config             Config
-	service            *service.Service
-	securityService    *auth.SecurityService
-	httpServer         *server.Server
-	apiServer          *server.SimpleAPIServer
-	authAPIServer      *server.AuthAPIServer
-	tlsAPIServer       *server.TLSAPIServer
-	dashboardAPIServer *server.DashboardAPIServer
-	listAPIServer      *server.ListAPIServer
+	mu              sync.Mutex
+	config          Config
+	service         *service.Service
+	securityService *auth.SecurityService
+	httpServer      *server.Server
 }
 
 // New creates a new application instance
@@ -125,12 +120,12 @@ func (a *App) Start(ctx context.Context) error {
 
 	logging.Info("Starting application")
 
-	// Initialize security service
-	authConfig := auth.ConvertSecurityConfig(a.config.Security)
-	a.securityService = auth.NewSecurityService(authConfig)
-
-	// Create initial admin if enabled
+	// Initialize security service only if auth is enabled
 	if a.config.Security.EnableAuth {
+		authConfig := auth.ConvertSecurityConfig(a.config.Security)
+		a.securityService = auth.NewSecurityService(authConfig)
+
+		// Create initial admin if enabled
 		if err := a.securityService.CreateInitialAdmin("admin", a.config.Security.AdminPassword, "admin@example.com"); err != nil {
 			logging.Warn("Failed to create initial admin", logging.Err(err))
 		}
@@ -146,32 +141,10 @@ func (a *App) Start(ctx context.Context) error {
 	serverConfig := convertConfigToServerConfig(a.config.Web)
 	a.httpServer = server.New(serverConfig)
 
-	// Initialize API servers
-	a.apiServer = server.NewSimpleAPIServer()
-	a.apiServer.RegisterRoutes(a.httpServer)
-
-	// Initialize auth API server if authentication is enabled
-	if a.config.Security.EnableAuth {
-		authServiceAdapter := NewSecurityServiceAdapter(a.securityService)
-		a.authAPIServer = server.NewAuthAPIServer(authServiceAdapter)
-		a.authAPIServer.RegisterRoutes(a.httpServer)
-	}
-
-	// Initialize TLS API server
-	a.tlsAPIServer = server.NewTLSAPIServer(a.httpServer)
-	a.tlsAPIServer.RegisterRoutes(a.httpServer)
-
-	// Initialize dashboard API server
-	a.dashboardAPIServer = server.NewDashboardAPIServer()
-	a.dashboardAPIServer.RegisterRoutes(a.httpServer)
-
-	// Initialize list API server
-	if a.service != nil {
-		// Get repository manager from service
-		repos := a.service.GetRepositoryManager()
-		a.listAPIServer = server.NewListAPIServer(repos)
-		a.listAPIServer.RegisterRoutes(a.httpServer)
-	}
+	// Initialize API server
+	repos := a.service.GetRepositoryManager()
+	apiServer := server.NewAPIServer(repos, a.config.Security.EnableAuth)
+	apiServer.RegisterRoutes(a.httpServer)
 
 	// Setup static file server for web dashboard
 	if err := a.setupStaticFileServer(); err != nil {
@@ -185,10 +158,7 @@ func (a *App) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start HTTP server: %w", err)
 	}
 
-	logging.Info("Application started successfully",
-		logging.String("http_address", a.httpServer.GetAddress()),
-		logging.Bool("auth_enabled", a.config.Security.EnableAuth))
-
+	logging.Info("Application started successfully")
 	return nil
 }
 

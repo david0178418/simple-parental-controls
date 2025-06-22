@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,7 +66,7 @@ func TestNew(t *testing.T) {
 func TestServiceLifecycle(t *testing.T) {
 	// Create temporary directory for test
 	tempDir := t.TempDir()
-	
+
 	config := Config{
 		PIDFile:             filepath.Join(tempDir, "test.pid"),
 		ShutdownTimeout:     5 * time.Second,
@@ -111,7 +112,7 @@ func TestServiceLifecycle(t *testing.T) {
 	}
 
 	// Test stop
-	if err := service.Stop(); err != nil {
+	if err := service.Stop(context.Background()); err != nil {
 		t.Errorf("Failed to stop service: %v", err)
 	}
 
@@ -127,7 +128,7 @@ func TestServiceLifecycle(t *testing.T) {
 
 func TestServiceDoubleStart(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	config := Config{
 		PIDFile:             filepath.Join(tempDir, "test.pid"),
 		ShutdownTimeout:     5 * time.Second,
@@ -146,7 +147,7 @@ func TestServiceDoubleStart(t *testing.T) {
 	if err := service.Start(); err != nil {
 		t.Fatalf("Failed to start service: %v", err)
 	}
-	defer service.Stop()
+	defer service.Stop(context.Background())
 
 	// Try to start again - should handle gracefully
 	// Note: Current implementation doesn't prevent double start,
@@ -158,7 +159,7 @@ func TestServiceDoubleStart(t *testing.T) {
 
 func TestServiceDoubleStop(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	config := Config{
 		PIDFile:             filepath.Join(tempDir, "test.pid"),
 		ShutdownTimeout:     5 * time.Second,
@@ -178,12 +179,12 @@ func TestServiceDoubleStop(t *testing.T) {
 		t.Fatalf("Failed to start service: %v", err)
 	}
 
-	if err := service.Stop(); err != nil {
+	if err := service.Stop(context.Background()); err != nil {
 		t.Errorf("Failed to stop service: %v", err)
 	}
 
 	// Try to stop again - should handle gracefully
-	if err := service.Stop(); err != nil {
+	if err := service.Stop(context.Background()); err != nil {
 		t.Errorf("Double stop should not return error, got: %v", err)
 	}
 
@@ -194,7 +195,7 @@ func TestServiceDoubleStop(t *testing.T) {
 
 func TestServiceRestart(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	config := Config{
 		PIDFile:             filepath.Join(tempDir, "test.pid"),
 		ShutdownTimeout:     5 * time.Second,
@@ -223,7 +224,7 @@ func TestServiceRestart(t *testing.T) {
 	if err := service.Restart(); err != nil {
 		t.Errorf("Failed to restart service: %v", err)
 	}
-	defer service.Stop()
+	defer service.Stop(context.Background())
 
 	if service.GetState() != StateRunning {
 		t.Errorf("Expected state StateRunning after restart, got %v", service.GetState())
@@ -237,7 +238,7 @@ func TestServiceRestart(t *testing.T) {
 
 func TestServiceHealthCheck(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	config := Config{
 		PIDFile:             filepath.Join(tempDir, "test.pid"),
 		ShutdownTimeout:     5 * time.Second,
@@ -261,7 +262,7 @@ func TestServiceHealthCheck(t *testing.T) {
 	if err := service.Start(); err != nil {
 		t.Fatalf("Failed to start service: %v", err)
 	}
-	defer service.Stop()
+	defer service.Stop(context.Background())
 
 	// Health check should pass when running
 	if err := service.IsHealthy(); err != nil {
@@ -274,7 +275,7 @@ func TestServiceHealthCheck(t *testing.T) {
 
 func TestServiceWait(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	config := Config{
 		PIDFile:             filepath.Join(tempDir, "test.pid"),
 		ShutdownTimeout:     5 * time.Second,
@@ -304,7 +305,7 @@ func TestServiceWait(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Stop the service
-	if err := service.Stop(); err != nil {
+	if err := service.Stop(context.Background()); err != nil {
 		t.Errorf("Failed to stop service: %v", err)
 	}
 
@@ -320,7 +321,7 @@ func TestServiceWait(t *testing.T) {
 func TestPIDFileHandling(t *testing.T) {
 	tempDir := t.TempDir()
 	pidFile := filepath.Join(tempDir, "subdir", "test.pid")
-	
+
 	config := Config{
 		PIDFile:             pidFile,
 		ShutdownTimeout:     5 * time.Second,
@@ -350,7 +351,7 @@ func TestPIDFileHandling(t *testing.T) {
 	}
 
 	// Stop service
-	if err := service.Stop(); err != nil {
+	if err := service.Stop(context.Background()); err != nil {
 		t.Errorf("Failed to stop service: %v", err)
 	}
 
@@ -378,10 +379,10 @@ func TestErrorHandling(t *testing.T) {
 	// Start should fail due to invalid paths
 	if err := service.Start(); err == nil {
 		t.Error("Expected start to fail with invalid paths")
-		service.Stop() // Clean up if it somehow succeeded
+		service.Stop(context.Background()) // Clean up if it somehow succeeded
 	}
 
 	if service.GetState() != StateError {
 		t.Errorf("Expected state StateError after failed start, got %v", service.GetState())
 	}
-} 
+}

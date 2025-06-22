@@ -344,9 +344,8 @@ func (lpm *LinuxProcessMonitor) readProcessInfo(procPath string, process *Proces
 	// Read stat file for PPID and other info
 	statFile := filepath.Join(procPath, "stat")
 	if statData, err := os.ReadFile(statFile); err == nil {
-		if err := lpm.parseStatFile(string(statData), process); err == nil {
-			// Successfully parsed stat file
-		}
+		// Ignore parse errors - process info will be incomplete but still usable
+		_ = lpm.parseStatFile(string(statData), process)
 	}
 
 	// If we couldn't get name from exe, try comm file

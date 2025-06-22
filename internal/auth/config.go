@@ -44,7 +44,7 @@ func ValidateAuthConfig(cfg AuthConfig) error {
 	testPassword := "TestPassword123!"
 	if err := hasher.ValidatePasswordStrength(testPassword); err != nil {
 		// If even a strong test password fails, the config is likely too restrictive
-		// This is mainly to catch configuration errors
+		return fmt.Errorf("password configuration is too restrictive: %w", err)
 	}
 
 	// Validate session settings

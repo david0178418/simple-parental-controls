@@ -421,11 +421,8 @@ func (ee *EnforcementEngine) updateInternalStats() {
 		ee.stats.NetworkRequestsAllowed = dnsStats.AllowedQueries
 	}
 
-	// Update process monitor stats if available
-	if ee.processMonitor != nil {
-		// Process monitor stats are updated in real-time in handleProcessEvent
-		// This is a placeholder for any additional process monitor statistics
-	}
+	// Process monitor stats are updated in real-time in handleProcessEvent
+	// No additional process monitor statistics to update here
 
 	ee.stats.LastEnforcementTime = time.Now()
 }

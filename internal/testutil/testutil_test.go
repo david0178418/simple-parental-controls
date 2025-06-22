@@ -201,7 +201,7 @@ func TestAssertNotEqual(t *testing.T) {
 func TestAssertTrue(t *testing.T) {
 	// Test with true - should not fail
 	AssertTrue(t, true)
-	AssertTrue(t, 1 == 1)
+	AssertTrue(t, len("test") == 4)
 
 	// Test with false would fail
 	// We can't test this easily without sub-tests
@@ -353,7 +353,7 @@ func TestSetupTestEnvironment(t *testing.T) {
 	}
 
 	// Test that database config is synchronized
-	if cfg.Config.Database.Path != db.Config.Path {
+	if cfg != nil && cfg.Config != nil && db != nil && cfg.Config.Database.Path != db.Config.Path {
 		t.Error("Expected database paths to be synchronized")
 	}
 }

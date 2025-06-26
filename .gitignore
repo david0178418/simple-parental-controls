@@ -4,6 +4,5 @@ certs/
 *.crt
 *.key
 data/
-./parental-control
 bin
 *.log

@@ -55,7 +55,7 @@ func convertConfigToServerConfig(webConfig config.WebConfig) server.Config {
 
 	return server.Config{
 		Port:              webConfig.Port,
-		BindToLAN:         true,
+		BindToLAN:         false,
 		AllowedInterfaces: []string{},
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

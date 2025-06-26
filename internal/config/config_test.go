@@ -91,6 +91,7 @@ func TestValidation(t *testing.T) {
 			name: "TLS enabled without cert file",
 			modify: func(c *Config) {
 				c.Web.TLSEnabled = true
+				c.Web.TLSAutoGenerate = false
 				c.Web.TLSCertFile = ""
 			},
 			expectError: true,
@@ -214,16 +215,16 @@ func TestLoadFromNonExistentFile(t *testing.T) {
 func TestEnvironmentOverrides(t *testing.T) {
 	// Set test environment variables
 	testEnvVars := map[string]string{
-		"PC_SERVICE_PID_FILE":                "./env-test.pid",
-		"PC_SERVICE_SHUTDOWN_TIMEOUT":        "45s",
-		"PC_DATABASE_PATH":                   "./env-test.db",
-		"PC_DATABASE_MAX_OPEN_CONNS":         "15",
-		"PC_LOGGING_LEVEL":                   "WARN",
-		"PC_LOGGING_FORMAT":                  "json",
-		"PC_WEB_ENABLED":                     "false",
-		"PC_WEB_PORT":                        "9000",
-		"PC_SECURITY_ENABLE_AUTH":            "false",
-		"PC_MONITORING_ENABLED":              "false",
+		"PC_SERVICE_PID_FILE":         "./env-test.pid",
+		"PC_SERVICE_SHUTDOWN_TIMEOUT": "45s",
+		"PC_DATABASE_PATH":            "./env-test.db",
+		"PC_DATABASE_MAX_OPEN_CONNS":  "15",
+		"PC_LOGGING_LEVEL":            "WARN",
+		"PC_LOGGING_FORMAT":           "json",
+		"PC_WEB_ENABLED":              "false",
+		"PC_WEB_PORT":                 "9000",
+		"PC_SECURITY_ENABLE_AUTH":     "false",
+		"PC_MONITORING_ENABLED":       "false",
 	}
 
 	// Set environment variables
@@ -439,4 +440,4 @@ logging:
 	if config.Logging.Level != "DEBUG" {
 		t.Errorf("Expected environment override 'DEBUG', got %s", config.Logging.Level)
 	}
-} 
+}

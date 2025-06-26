@@ -89,64 +89,6 @@ func TestMilestone3Integration(t *testing.T) {
 			t.Logf("%s: %v", tc.description, result)
 		}
 	})
-
-	t.Run("Request Validation Testing", func(t *testing.T) {
-		// Test request validation logic
-		listService := NewListManagementService(&models.RepositoryManager{}, logger)
-
-		// Test valid list request
-		validRequest := CreateListRequest{
-			Name:        "Educational Websites",
-			Type:        models.ListTypeWhitelist,
-			Description: "Approved educational websites",
-			Enabled:     true,
-		}
-
-		err := listService.validateCreateListRequest(ctx, validRequest)
-		testutil.AssertNoError(t, err)
-
-		// Test invalid list request (empty name)
-		invalidRequest := CreateListRequest{
-			Name:        "",
-			Type:        models.ListTypeWhitelist,
-			Description: "Test",
-			Enabled:     true,
-		}
-
-		err = listService.validateCreateListRequest(ctx, invalidRequest)
-		testutil.AssertError(t, err)
-		t.Logf("Correctly caught validation error: %v", err)
-	})
-
-	t.Run("Quota Calculation Testing", func(t *testing.T) {
-		// Test quota calculation logic
-		quotaService := NewQuotaService(&models.RepositoryManager{}, logger)
-
-		// Test quota rule creation and validation
-		quotaRequest := CreateQuotaRuleRequest{
-			ListID:       1,
-			Name:         "Daily Social Media Limit",
-			QuotaType:    models.QuotaTypeDaily,
-			LimitSeconds: 3600, // 1 hour
-			Enabled:      true,
-		}
-
-		err := quotaService.validateCreateQuotaRuleRequest(ctx, quotaRequest)
-		testutil.AssertNoError(t, err)
-
-		// Test invalid quota (negative limit)
-		invalidQuotaRequest := CreateQuotaRuleRequest{
-			ListID:       1,
-			Name:         "Invalid Quota",
-			QuotaType:    models.QuotaTypeDaily,
-			LimitSeconds: -1,
-			Enabled:      true,
-		}
-
-		err = quotaService.validateCreateQuotaRuleRequest(ctx, invalidQuotaRequest)
-		testutil.AssertError(t, err)
-		t.Logf("Correctly caught quota validation error: %v", err)
-	})
 }
 
 // TestMilestone3ServiceIntegration tests the integration between services

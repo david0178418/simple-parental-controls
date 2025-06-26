@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 )
 
@@ -76,14 +77,14 @@ const (
 
 // TimeRule represents a time-based rule for when lists are active
 type TimeRule struct {
-	ID         int      `json:"id" db:"id"`
-	ListID     int      `json:"list_id" db:"list_id" validate:"required"`
-	Name       string   `json:"name" db:"name" validate:"required,max=255"`
-	RuleType   RuleType `json:"rule_type" db:"rule_type" validate:"required,oneof=allow_during block_during"`
-	DaysOfWeek []int    `json:"days_of_week" db:"days_of_week" validate:"required,dive,min=0,max=6"`
-	StartTime  string   `json:"start_time" db:"start_time" validate:"required"`
-	EndTime    string   `json:"end_time" db:"end_time" validate:"required"`
-	Enabled    bool     `json:"enabled" db:"enabled"`
+	ID         int       `json:"id" db:"id"`
+	ListID     int       `json:"list_id" db:"list_id" validate:"required"`
+	Name       string    `json:"name" db:"name" validate:"required,max=255"`
+	RuleType   RuleType  `json:"rule_type" db:"rule_type" validate:"required,oneof=allow_during block_during"`
+	DaysOfWeek []int     `json:"days_of_week" db:"days_of_week" validate:"required,dive,min=0,max=6"`
+	StartTime  string    `json:"start_time" db:"start_time" validate:"required"`
+	EndTime    string    `json:"end_time" db:"end_time" validate:"required"`
+	Enabled    bool      `json:"enabled" db:"enabled"`
 	CreatedAt  time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -101,9 +102,16 @@ func (tr *TimeRule) UnmarshalDaysOfWeek(data string) error {
 
 // ValidateTimeFormat validates that the time string is in HH:MM format
 func ValidateTimeFormat(timeStr string) error {
+	// Stricter validation to ensure HH:MM format
+	re := regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d)$`)
+	if !re.MatchString(timeStr) {
+		return fmt.Errorf("invalid time format, expected HH:MM")
+	}
+
+	// time.Parse is still useful for a final check on valid hours/minutes
 	_, err := time.Parse("15:04", timeStr)
 	if err != nil {
-		return fmt.Errorf("invalid time format, expected HH:MM")
+		return fmt.Errorf("invalid time value: %w", err)
 	}
 	return nil
 }
@@ -136,13 +144,13 @@ func (qr *QuotaRule) GetLimitDuration() time.Duration {
 
 // QuotaUsage tracks usage against quota rules
 type QuotaUsage struct {
-	ID           int       `json:"id" db:"id"`
-	QuotaRuleID  int       `json:"quota_rule_id" db:"quota_rule_id" validate:"required"`
-	PeriodStart  time.Time `json:"period_start" db:"period_start" validate:"required"`
-	PeriodEnd    time.Time `json:"period_end" db:"period_end" validate:"required"`
-	UsedSeconds  int       `json:"used_seconds" db:"used_seconds"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	ID          int       `json:"id" db:"id"`
+	QuotaRuleID int       `json:"quota_rule_id" db:"quota_rule_id" validate:"required"`
+	PeriodStart time.Time `json:"period_start" db:"period_start" validate:"required"`
+	PeriodEnd   time.Time `json:"period_end" db:"period_end" validate:"required"`
+	UsedSeconds int       `json:"used_seconds" db:"used_seconds"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // GetUsedDuration returns the used time as a time.Duration
@@ -194,7 +202,7 @@ func (al *AuditLog) GetDetailsMap() (map[string]interface{}, error) {
 	if al.Details == "" {
 		return make(map[string]interface{}), nil
 	}
-	
+
 	var details map[string]interface{}
 	err := json.Unmarshal([]byte(al.Details), &details)
 	return details, err
@@ -206,12 +214,12 @@ func (al *AuditLog) SetDetailsMap(details map[string]interface{}) error {
 		al.Details = ""
 		return nil
 	}
-	
+
 	data, err := json.Marshal(details)
 	if err != nil {
 		return err
 	}
-	
+
 	al.Details = string(data)
 	return nil
 }
@@ -242,11 +250,11 @@ func (ves ValidationErrors) Error() string {
 	if len(ves) == 0 {
 		return ""
 	}
-	
+
 	if len(ves) == 1 {
 		return ves[0].Error()
 	}
-	
+
 	return fmt.Sprintf("multiple validation errors: %d errors", len(ves))
 }
 
@@ -268,4 +276,4 @@ type DashboardStats struct {
 	TodayBlocks     int `json:"today_blocks"`
 	TodayAllows     int `json:"today_allows"`
 	QuotasNearLimit int `json:"quotas_near_limit"`
-} 
+}

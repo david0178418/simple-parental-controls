@@ -273,7 +273,7 @@ func Default() *Config {
 			CacheTimeout:           30 * time.Second,
 			BlockUnknownProcesses:  true,
 			LogAllActivity:         true,
-			EnableEmergencyMode:    true,
+			EnableEmergencyMode:    false,
 			EmergencyWhitelist:     []string{"192.168.1.1", "2001:db8::1"},
 			DNSListenAddr:          "0.0.0.0",
 			DNSBlockIPv4:           "0.0.0.0",

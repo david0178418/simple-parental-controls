@@ -213,7 +213,7 @@ class ApiClient {
   }
 
   public async createListEntry(entry: CreateListEntryRequest): Promise<ListEntry> {
-    return this.request<ListEntry>('/api/v1/entries', {
+    return this.request<ListEntry>(`/api/v1/lists/${entry.list_id}/entries`, {
       method: 'POST',
       body: JSON.stringify(entry),
     });

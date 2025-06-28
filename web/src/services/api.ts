@@ -20,7 +20,9 @@ import {
   LoginResponse,
   SearchFilters,
   AuditLogFilters,
-  Config
+  Config,
+  ApplicationInfo,
+  ApplicationDiscoveryResponse
 } from '../types/api';
 
 class ApiError extends Error {
@@ -329,6 +331,17 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
     });
+  }
+
+  // Applications API
+  public async discoverApplications(): Promise<ApplicationInfo[]> {
+    const response = await this.request<ApplicationDiscoveryResponse>('/api/v1/applications/discover');
+    return response.applications ?? [];
+  }
+
+  public async getRunningApplications(): Promise<ApplicationInfo[]> {
+    const response = await this.request<ApplicationDiscoveryResponse>('/api/v1/applications/running');
+    return response.applications ?? [];
   }
 }
 

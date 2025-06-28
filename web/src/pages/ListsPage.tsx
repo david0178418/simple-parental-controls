@@ -32,6 +32,7 @@ import {
   CardContent,
   Tooltip,
   Grid,
+  Autocomplete,
 } from '@mui/material';
 import {
   Add,
@@ -52,6 +53,7 @@ import type {
   ListType,
   EntryType,
   PatternType,
+  ApplicationInfo,
 } from '../types/api';
 
 interface TabPanelProps {
@@ -98,6 +100,11 @@ function ListsPage() {
     enabled: true,
   });
 
+  // Application Discovery State
+  const [discoveredApps, setDiscoveredApps] = useState<ApplicationInfo[]>([]);
+  const [loadingApps, setLoadingApps] = useState(false);
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
   useEffect(() => {
     loadLists();
   }, []);
@@ -121,6 +128,20 @@ function ListsPage() {
       setListEntries(entries);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load list entries');
+    }
+  };
+
+  const loadDiscoveredApplications = async (): Promise<void> => {
+    try {
+      setLoadingApps(true);
+      const apps = await apiClient.discoverApplications();
+      setDiscoveredApps(apps);
+    } catch (err) {
+      console.error('Failed to load discovered applications:', err);
+      // Don't show error to user - just fall back to manual entry
+      setShowCustomInput(true);
+    } finally {
+      setLoadingApps(false);
     }
   };
 
@@ -206,7 +227,10 @@ function ListsPage() {
       description: '',
       enabled: true,
     });
+    setShowCustomInput(false);
     setEntryDialogOpen(true);
+    // Load discovered applications when creating a new entry
+    loadDiscoveredApplications();
   };
 
   const handleEditEntry = (entry: ListEntry): void => {
@@ -219,7 +243,12 @@ function ListsPage() {
       description: entry.description,
       enabled: entry.enabled,
     });
+    setShowCustomInput(false);
     setEntryDialogOpen(true);
+    // Load discovered applications when editing an entry
+    if (entry.entry_type === 'executable') {
+      loadDiscoveredApplications();
+    }
   };
 
   const handleSaveEntry = async (): Promise<void> => {
@@ -700,34 +729,155 @@ function ListsPage() {
                 setEntryForm({ 
                   ...entryForm, 
                   entry_type: newEntryType,
-                  pattern_type: newPatternType
+                  pattern_type: newPatternType,
+                  pattern: '' // Clear pattern when switching types
                 });
+                setShowCustomInput(false);
+                // Load discovered applications when switching to executable
+                if (newEntryType === 'executable') {
+                  loadDiscoveredApplications();
+                }
               }}
             >
               <MenuItem value="executable">Application Executable</MenuItem>
               <MenuItem value="url">Website URL</MenuItem>
             </Select>
           </FormControl>
-          <TextField
-            margin="dense"
-            label={entryForm.entry_type === 'executable' ? 'Application Name' : 'Website URL or Domain'}
-            fullWidth
-            variant="outlined"
-            value={entryForm.pattern}
-            onChange={(e) => setEntryForm({ ...entryForm, pattern: e.target.value })}
-            sx={{ mb: 2 }}
-            helperText={
-              entryForm.entry_type === 'executable'
-                ? entryForm.pattern_type === 'wildcard'
-                  ? "e.g., 'chrom*', '*.exe', 'game*'"
-                  : "e.g., 'firefox', 'chrome.exe', '/usr/bin/vim'"
-                : entryForm.pattern_type === 'domain'
+          {entryForm.entry_type === 'executable' ? (
+            <Box sx={{ mb: 2 }}>
+              {!showCustomInput && discoveredApps.length > 0 ? (
+                <Box>
+                  <Autocomplete
+                    fullWidth
+                    options={discoveredApps}
+                    getOptionLabel={(option) => option.name}
+                    filterOptions={(options, params) => {
+                      const filtered = options.filter(option =>
+                        option.name.toLowerCase().includes(params.inputValue.toLowerCase()) ||
+                        option.executable.toLowerCase().includes(params.inputValue.toLowerCase()) ||
+                        (option.description && option.description.toLowerCase().includes(params.inputValue.toLowerCase()))
+                      );
+                      return filtered;
+                    }}
+                    renderOption={(props, option) => (
+                      <Box component="li" {...props}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" fontWeight="bold">
+                              {option.name}
+                            </Typography>
+                            {option.category && (
+                              <Chip 
+                                label={option.category} 
+                                size="small" 
+                                variant="outlined" 
+                                sx={{ height: 20, fontSize: '0.75rem' }}
+                              />
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary">
+                            {option.executable}
+                            {option.description && ` - ${option.description}`}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    )}
+                    value={discoveredApps.find(app => app.executable === entryForm.pattern || app.name === entryForm.pattern) || null}
+                    onChange={(_event, newValue) => {
+                      if (newValue) {
+                        setEntryForm({ 
+                          ...entryForm, 
+                          pattern: newValue.executable,
+                          description: entryForm.description || newValue.description || ''
+                        });
+                      }
+                    }}
+                    loading={loadingApps}
+                    freeSolo={false}
+                    autoHighlight={true}
+                    openOnFocus={true}
+                    clearOnBlur={false}
+                    selectOnFocus={true}
+                    renderInput={(params) => (
+                      <TextField
+                        label="Select Application"
+                        variant="outlined"
+                        placeholder="Type to search applications..."
+                        helperText={
+                          loadingApps 
+                            ? "Loading applications..." 
+                            : `${discoveredApps.length} applications found. Type to search or select from list.`
+                        }
+                        InputProps={{
+                          ...params.InputProps,
+                          endAdornment: (
+                            <>
+                              {loadingApps ? <CircularProgress color="inherit" size={20} /> : null}
+                              {params.InputProps.endAdornment}
+                            </>
+                          ),
+                        }}
+                        inputProps={params.inputProps}
+                        fullWidth
+                        ref={params.InputProps.ref}
+                      />
+                    )}
+                  />
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => setShowCustomInput(true)}
+                    sx={{ mt: 1 }}
+                  >
+                    Can't find your application? Enter manually
+                  </Button>
+                </Box>
+              ) : (
+                <Box>
+                  <TextField
+                    margin="dense"
+                    label="Application Name"
+                    fullWidth
+                    variant="outlined"
+                    value={entryForm.pattern}
+                    onChange={(e) => setEntryForm({ ...entryForm, pattern: e.target.value })}
+                    helperText={
+                      entryForm.pattern_type === 'wildcard'
+                        ? "e.g., 'chrom*', '*.exe', 'game*'"
+                        : "e.g., 'firefox', 'chrome.exe', '/usr/bin/vim'"
+                    }
+                  />
+                  {discoveredApps.length > 0 && (
+                    <Button
+                      variant="text"
+                      size="small"
+                      onClick={() => setShowCustomInput(false)}
+                      sx={{ mt: 1 }}
+                    >
+                      Choose from discovered applications
+                    </Button>
+                  )}
+                </Box>
+              )}
+            </Box>
+          ) : (
+            <TextField
+              margin="dense"
+              label="Website URL or Domain"
+              fullWidth
+              variant="outlined"
+              value={entryForm.pattern}
+              onChange={(e) => setEntryForm({ ...entryForm, pattern: e.target.value })}
+              sx={{ mb: 2 }}
+              helperText={
+                entryForm.pattern_type === 'domain'
                   ? "e.g., 'youtube.com', 'facebook.com'"
                   : entryForm.pattern_type === 'wildcard'
                     ? "e.g., '*.example.com', '*social*'"
                     : "e.g., 'https://example.com/path'"
-            }
-          />
+              }
+            />
+          )}
           <FormControl fullWidth sx={{ mb: 2 }}>
             <InputLabel>Pattern Type</InputLabel>
             <Select
@@ -735,10 +885,14 @@ function ListsPage() {
               label="Pattern Type"
               onChange={(e) => setEntryForm({ ...entryForm, pattern_type: e.target.value as PatternType })}
             >
-              {entryForm.entry_type === 'executable' ? [
-                <MenuItem key="exact" value="exact">Exact Name</MenuItem>,
-                <MenuItem key="wildcard" value="wildcard">Name Pattern</MenuItem>
-              ] : [
+              {entryForm.entry_type === 'executable' ? (
+                showCustomInput ? [
+                  <MenuItem key="exact" value="exact">Exact Name</MenuItem>,
+                  <MenuItem key="wildcard" value="wildcard">Name Pattern</MenuItem>
+                ] : [
+                  <MenuItem key="exact" value="exact">Exact Name</MenuItem>
+                ]
+              ) : [
                 <MenuItem key="exact" value="exact">Exact Match</MenuItem>,
                 <MenuItem key="wildcard" value="wildcard">Wildcard</MenuItem>,
                 <MenuItem key="domain" value="domain">Domain</MenuItem>

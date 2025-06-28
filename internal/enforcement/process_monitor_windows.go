@@ -25,14 +25,14 @@ type PROCESSENTRY32 struct {
 }
 
 const (
-	TH32CS_SNAPPROCESS         = 0x00000002
-	INVALID_HANDLE_VALUE       = ^uintptr(0)
-	PROCESS_TERMINATE          = 0x0001
-	PROCESS_QUERY_INFORMATION  = 0x0400
+	TH32CS_SNAPPROCESS                = 0x00000002
+	INVALID_HANDLE_VALUE              = ^uintptr(0)
+	PROCESS_TERMINATE                 = 0x0001
+	PROCESS_QUERY_INFORMATION         = 0x0400
 	PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-	STILL_ACTIVE               = 259
-	WAIT_TIMEOUT               = 0x00000102
-	INFINITE                   = 0xFFFFFFFF
+	STILL_ACTIVE                      = 259
+	WAIT_TIMEOUT                      = 0x00000102
+	INFINITE                          = 0xFFFFFFFF
 )
 
 var (

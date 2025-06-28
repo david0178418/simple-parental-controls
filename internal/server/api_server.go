@@ -69,6 +69,11 @@ func (api *APIServer) RegisterRoutes(server *Server) {
 	if api.enforcementService != nil {
 		enforcementAPIServer := NewEnforcementAPIServer(api.enforcementService)
 		enforcementAPIServer.RegisterRoutes(server)
+
+		// Applications API using process monitor from enforcement service
+		processMonitor := api.enforcementService.GetProcessMonitor()
+		applicationsAPIServer := NewApplicationsAPIServer(processMonitor)
+		applicationsAPIServer.RegisterRoutes(server)
 	}
 
 	// Register dashboard stats and list management endpoints

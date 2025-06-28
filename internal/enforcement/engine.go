@@ -101,7 +101,7 @@ func NewEnforcementEngine(config *EnforcementConfig, logger logging.Logger, audi
 
 	dnsBlockerConfig := &DNSBlockerConfig{
 		ListenAddr:    ":53",
-		BlockIPv4:     "0.0.0.0", 
+		BlockIPv4:     "0.0.0.0",
 		BlockIPv6:     "::",
 		UpstreamDNS:   []string{"8.8.8.8:53", "1.1.1.1:53"},
 		CacheTTL:      300 * time.Second,
@@ -281,7 +281,7 @@ func (ee *EnforcementEngine) ClearAllRules() error {
 	if ee.dnsBlocker == nil {
 		return fmt.Errorf("dns blocker not enabled")
 	}
-	
+
 	ee.dnsBlocker.ClearAllRules()
 	ee.logger.Info("Cleared all enforcement rules")
 	return nil
@@ -308,16 +308,16 @@ func (ee *EnforcementEngine) KillProcess(ctx context.Context, pid int, graceful 
 	if ee.processMonitor == nil {
 		return fmt.Errorf("process monitor not available")
 	}
-	
-	ee.logger.Info("Terminating process", 
-		logging.Int("pid", pid), 
+
+	ee.logger.Info("Terminating process",
+		logging.Int("pid", pid),
 		logging.Bool("graceful", graceful))
-	
+
 	if err := ee.processMonitor.KillProcess(ctx, pid, graceful); err != nil {
 		ee.incrementErrorCount(fmt.Errorf("failed to kill process: %w", err))
 		return err
 	}
-	
+
 	ee.logger.Info("Process terminated successfully", logging.Int("pid", pid))
 	return nil
 }
@@ -327,16 +327,16 @@ func (ee *EnforcementEngine) KillProcessByName(ctx context.Context, namePattern 
 	if ee.processMonitor == nil {
 		return fmt.Errorf("process monitor not available")
 	}
-	
-	ee.logger.Info("Terminating processes by name", 
-		logging.String("pattern", namePattern), 
+
+	ee.logger.Info("Terminating processes by name",
+		logging.String("pattern", namePattern),
 		logging.Bool("graceful", graceful))
-	
+
 	if err := ee.processMonitor.KillProcessByName(ctx, namePattern, graceful); err != nil {
 		ee.incrementErrorCount(fmt.Errorf("failed to kill processes by name: %w", err))
 		return err
 	}
-	
+
 	ee.logger.Info("Processes terminated successfully", logging.String("pattern", namePattern))
 	return nil
 }

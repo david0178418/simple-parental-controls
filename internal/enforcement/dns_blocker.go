@@ -192,7 +192,7 @@ func (b *DNSBlocker) GetAllRules() map[string]*FilterRule {
 func (b *DNSBlocker) ClearAllRules() {
 	b.rulesMu.Lock()
 	defer b.rulesMu.Unlock()
-	
+
 	b.rules = make(map[string]*FilterRule)
 	if b.config.EnableLogging {
 		b.logger.Debug("Cleared all DNS rules")

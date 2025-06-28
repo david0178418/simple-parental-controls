@@ -14,15 +14,15 @@ import (
 
 // EnforcementService manages the enforcement engine and rule synchronization
 type EnforcementService struct {
-	engine   *enforcement.EnforcementEngine
-	repos    *models.RepositoryManager
-	logger   logging.Logger
-	config   enforcement.EnforcementConfig
-	
+	engine *enforcement.EnforcementEngine
+	repos  *models.RepositoryManager
+	logger logging.Logger
+	config enforcement.EnforcementConfig
+
 	// State management
 	running   bool
 	runningMu sync.RWMutex
-	
+
 	// Rule synchronization
 	syncInterval time.Duration
 	stopCh       chan struct{}
@@ -44,7 +44,7 @@ func NewEnforcementService(
 	}
 	auditService := NewAuditService(repos, logger, auditConfig)
 	engine := enforcement.NewEnforcementEngine(&config, logger, auditService)
-	
+
 	return &EnforcementService{
 		engine:       engine,
 		repos:        repos,
@@ -59,30 +59,30 @@ func NewEnforcementService(
 func (es *EnforcementService) Start(ctx context.Context) error {
 	es.runningMu.Lock()
 	defer es.runningMu.Unlock()
-	
+
 	if es.running {
 		return fmt.Errorf("enforcement service is already running")
 	}
-	
+
 	es.logger.Info("Starting enforcement service")
-	
+
 	// Start the enforcement engine
 	if err := es.engine.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start enforcement engine: %w", err)
 	}
-	
+
 	// Perform initial rule synchronization
 	if err := es.SyncRules(ctx); err != nil {
 		es.logger.Error("Initial rule synchronization failed", logging.Err(err))
 		// Don't fail startup - continue with periodic sync
 	}
-	
+
 	es.running = true
-	
+
 	// Start periodic rule synchronization
 	es.wg.Add(1)
 	go es.ruleSyncLoop(ctx)
-	
+
 	es.logger.Info("Enforcement service started successfully")
 	return nil
 }
@@ -91,25 +91,25 @@ func (es *EnforcementService) Start(ctx context.Context) error {
 func (es *EnforcementService) Stop(ctx context.Context) error {
 	es.runningMu.Lock()
 	defer es.runningMu.Unlock()
-	
+
 	if !es.running {
 		return nil
 	}
-	
+
 	es.logger.Info("Stopping enforcement service")
-	
+
 	// Signal sync loop to stop
 	close(es.stopCh)
-	
+
 	// Wait for sync loop to finish
 	es.wg.Wait()
-	
+
 	// Stop the enforcement engine
 	if err := es.engine.Stop(ctx); err != nil {
 		es.logger.Error("Error stopping enforcement engine", logging.Err(err))
 		return err
 	}
-	
+
 	es.running = false
 	es.logger.Info("Enforcement service stopped successfully")
 	return nil
@@ -125,22 +125,22 @@ func (es *EnforcementService) IsRunning() bool {
 // SyncRules synchronizes rules from the database to the enforcement engine
 func (es *EnforcementService) SyncRules(ctx context.Context) error {
 	es.logger.Debug("Starting rule synchronization")
-	
+
 	// Get current rules from enforcement engine
 	currentRules := es.engine.GetCurrentRules()
-	
+
 	// Get desired rules from database
 	desiredRules, err := es.getDesiredRulesFromDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get desired rules: %w", err)
 	}
-	
+
 	es.logger.Debug("Rule sync status",
 		logging.Int("current_rules_count", len(currentRules)),
 		logging.Int("desired_rules_count", len(desiredRules)))
-	
+
 	var rulesAdded, rulesRemoved, rulesSkipped int
-	
+
 	// Add new rules that don't exist
 	for pattern, rule := range desiredRules {
 		if _, exists := currentRules[pattern]; !exists {
@@ -154,7 +154,7 @@ func (es *EnforcementService) SyncRules(ctx context.Context) error {
 			rulesAdded++
 		}
 	}
-	
+
 	// Remove rules that no longer exist in database
 	for pattern, rule := range currentRules {
 		if _, exists := desiredRules[pattern]; !exists {
@@ -166,12 +166,12 @@ func (es *EnforcementService) SyncRules(ctx context.Context) error {
 				continue
 			}
 			rulesRemoved++
-			es.logger.Info("Removed network rule", 
+			es.logger.Info("Removed network rule",
 				logging.String("pattern", pattern),
 				logging.String("rule_name", rule.Name))
 		}
 	}
-	
+
 	es.logger.Info("Rule synchronization completed",
 		logging.Int("rules_added", rulesAdded),
 		logging.Int("rules_removed", rulesRemoved),
@@ -184,50 +184,50 @@ func (es *EnforcementService) SyncRules(ctx context.Context) error {
 		es.logger.Error("Failed to enforce executable rules", logging.Err(err))
 		// Don't fail the entire sync - executable enforcement is best effort
 	}
-	
+
 	return nil
 }
 
 // getDesiredRulesFromDatabase gets all rules that should be active based on database state
 func (es *EnforcementService) getDesiredRulesFromDatabase(ctx context.Context) (map[string]*enforcement.FilterRule, error) {
 	desiredRules := make(map[string]*enforcement.FilterRule)
-	
+
 	// Get all enabled lists
 	lists, err := es.repos.List.GetAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get lists: %w", err)
 	}
-	
+
 	for _, list := range lists {
 		if !list.Enabled {
 			continue // Skip disabled lists
 		}
-		
+
 		// Get entries for this list
 		entries, err := es.repos.ListEntry.GetByListID(ctx, list.ID)
 		if err != nil {
-			es.logger.Error("Failed to get entries for list", 
-				logging.Err(err), 
+			es.logger.Error("Failed to get entries for list",
+				logging.Err(err),
 				logging.Int("list_id", list.ID))
 			continue
 		}
-		
+
 		// Convert entries to enforcement rules
 		for _, entry := range entries {
 			if !entry.Enabled {
 				continue // Skip disabled entries
 			}
-			
+
 			rule := es.convertEntryToRule(&list, &entry)
 			if rule == nil {
 				continue
 			}
-			
+
 			// Use pattern as key to avoid duplicates
 			desiredRules[rule.Pattern] = rule
 		}
 	}
-	
+
 	return desiredRules, nil
 }
 
@@ -251,13 +251,66 @@ func (es *EnforcementService) GetSystemInfo() map[string]interface{} {
 		"service_running": es.IsRunning(),
 		"sync_interval":   es.syncInterval.String(),
 	}
-	
+
 	if es.engine != nil {
 		engineInfo := es.engine.GetSystemInfo()
 		info["engine"] = engineInfo
 	}
-	
+
 	return info
+}
+
+// GetProcessMonitor returns the process monitor from the enforcement engine
+func (es *EnforcementService) GetProcessMonitor() enforcement.ProcessMonitor {
+	if es.engine == nil {
+		return nil
+	}
+	// Note: This requires exposing processMonitor field in engine
+	// For now, we'll implement this through the engine methods
+	return &processMonitorWrapper{engine: es.engine}
+}
+
+// processMonitorWrapper wraps the enforcement engine to provide ProcessMonitor interface
+type processMonitorWrapper struct {
+	engine *enforcement.EnforcementEngine
+}
+
+func (pmw *processMonitorWrapper) GetProcesses(ctx context.Context) ([]*enforcement.ProcessInfo, error) {
+	return pmw.engine.GetProcesses(ctx)
+}
+
+func (pmw *processMonitorWrapper) GetProcess(ctx context.Context, pid int) (*enforcement.ProcessInfo, error) {
+	return pmw.engine.GetProcess(ctx, pid)
+}
+
+func (pmw *processMonitorWrapper) Start(ctx context.Context) error {
+	// Engine already started, return success
+	return nil
+}
+
+func (pmw *processMonitorWrapper) Stop() error {
+	// Don't stop the engine from here
+	return nil
+}
+
+func (pmw *processMonitorWrapper) Subscribe() <-chan enforcement.ProcessEvent {
+	// This would require access to the internal process monitor
+	// For now, return a closed channel
+	ch := make(chan enforcement.ProcessEvent)
+	close(ch)
+	return ch
+}
+
+func (pmw *processMonitorWrapper) KillProcess(ctx context.Context, pid int, graceful bool) error {
+	return pmw.engine.KillProcess(ctx, pid, graceful)
+}
+
+func (pmw *processMonitorWrapper) KillProcessByName(ctx context.Context, namePattern string, graceful bool) error {
+	return pmw.engine.KillProcessByName(ctx, namePattern, graceful)
+}
+
+func (pmw *processMonitorWrapper) IsProcessRunning(ctx context.Context, pid int) bool {
+	return pmw.engine.IsProcessRunning(ctx, pid)
 }
 
 // convertEntryToRule converts a database entry to an enforcement rule
@@ -278,7 +331,7 @@ func (es *EnforcementService) convertEntryToRule(list *models.List, entry *model
 		es.logger.Warn("Unknown list type", logging.String("type", string(list.Type)))
 		return nil
 	}
-	
+
 	// Determine match type based on pattern type
 	var matchType enforcement.MatchType
 	switch entry.PatternType {
@@ -291,11 +344,11 @@ func (es *EnforcementService) convertEntryToRule(list *models.List, entry *model
 	default:
 		matchType = enforcement.MatchExact // Default fallback
 	}
-	
+
 	// Generate unique rule ID and name
 	ruleID := fmt.Sprintf("rule_%d_%d", list.ID, entry.ID)
 	ruleName := fmt.Sprintf("%s_%s_%d", list.Name, entry.EntryType, entry.ID)
-	
+
 	return &enforcement.FilterRule{
 		ID:        ruleID,
 		Name:      ruleName,
@@ -327,8 +380,8 @@ func (es *EnforcementService) getExecutableRulesFromDatabase(ctx context.Context
 		// Get entries for this list
 		entries, err := es.repos.ListEntry.GetByListID(ctx, list.ID)
 		if err != nil {
-			es.logger.Error("Failed to get entries for list", 
-				logging.Err(err), 
+			es.logger.Error("Failed to get entries for list",
+				logging.Err(err),
 				logging.Int("list_id", list.ID))
 			continue
 		}
@@ -411,10 +464,10 @@ func (es *EnforcementService) processMatchesRule(process *enforcement.ProcessInf
 // ruleSyncLoop runs periodic rule synchronization
 func (es *EnforcementService) ruleSyncLoop(ctx context.Context) {
 	defer es.wg.Done()
-	
+
 	ticker := time.NewTicker(es.syncInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -423,7 +476,7 @@ func (es *EnforcementService) ruleSyncLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := es.SyncRules(ctx); err != nil {
-				es.logger.Error("Periodic rule synchronization failed", 
+				es.logger.Error("Periodic rule synchronization failed",
 					logging.Err(err),
 					logging.String("sync_type", "periodic"))
 			}

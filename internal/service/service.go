@@ -90,17 +90,17 @@ func DefaultConfig() Config {
 
 // Service manages the application lifecycle
 type Service struct {
-	config            Config
-	state             ServiceState
-	stateMu           sync.RWMutex
-	db                *database.DB
-	repos             *models.RepositoryManager
+	config             Config
+	state              ServiceState
+	stateMu            sync.RWMutex
+	db                 *database.DB
+	repos              *models.RepositoryManager
 	enforcementService *EnforcementService
-	ctx               context.Context
-	cancel            context.CancelFunc
-	startTime         time.Time
-	errors            []error
-	errorsMu          sync.RWMutex
+	ctx                context.Context
+	cancel             context.CancelFunc
+	startTime          time.Time
+	errors             []error
+	errorsMu           sync.RWMutex
 }
 
 // New creates a new service instance with the given configuration

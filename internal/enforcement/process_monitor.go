@@ -66,22 +66,22 @@ const (
 
 // Critical processes that should never be terminated
 var CriticalProcesses = map[string]bool{
-	"systemd":     true,
-	"kernel":      true,
-	"init":        true,
-	"kthreadd":    true,
-	"migration":   true,
-	"rcu_":        true, // RCU processes
-	"watchdog":    true,
-	"sshd":        true,
+	"systemd":        true,
+	"kernel":         true,
+	"init":           true,
+	"kthreadd":       true,
+	"migration":      true,
+	"rcu_":           true, // RCU processes
+	"watchdog":       true,
+	"sshd":           true,
 	"NetworkManager": true,
-	"dbus":        true,
-	"explorer.exe": true, // Windows
-	"winlogon.exe": true, // Windows
-	"csrss.exe":   true, // Windows
-	"smss.exe":    true, // Windows
-	"services.exe": true, // Windows
-	"lsass.exe":   true, // Windows
+	"dbus":           true,
+	"explorer.exe":   true, // Windows
+	"winlogon.exe":   true, // Windows
+	"csrss.exe":      true, // Windows
+	"smss.exe":       true, // Windows
+	"services.exe":   true, // Windows
+	"lsass.exe":      true, // Windows
 }
 
 // ProcessIdentifier handles process identification and matching
@@ -172,19 +172,19 @@ func IsCriticalProcess(processName string) bool {
 	if CriticalProcesses[processName] {
 		return true
 	}
-	
+
 	// Check for partial matches (e.g., rcu_ processes)
 	for critical := range CriticalProcesses {
 		if strings.Contains(critical, "_") && strings.HasPrefix(processName, strings.TrimSuffix(critical, "_")) {
 			return true
 		}
 	}
-	
+
 	// Additional safety checks
 	if processName == "" {
 		return true // Don't kill processes we can't identify
 	}
-	
+
 	// Protect system processes (PID < 100 on Linux, similar concept on Windows)
 	return false
 }

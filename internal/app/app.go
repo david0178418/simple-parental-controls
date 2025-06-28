@@ -27,11 +27,11 @@ type Config struct {
 func DefaultConfig() Config {
 	defaultConfig := config.Default()
 	serviceConfig := service.DefaultConfig()
-	
+
 	// Convert enforcement config from main config to engine config
 	serviceConfig.EnforcementConfig = convertEnforcementConfig(defaultConfig.Enforcement)
 	serviceConfig.EnforcementEnabled = defaultConfig.Enforcement.Enabled
-	
+
 	return Config{
 		Service:  serviceConfig,
 		Web:      defaultConfig.Web,
@@ -160,14 +160,14 @@ func (a *App) Start(ctx context.Context) error {
 
 	// Register API routes
 	apiServer := server.NewAPIServer(*repos, a.config.Security.EnableAuth)
-	
+
 	// Set enforcement service if available
 	if enforcementService := a.service.GetEnforcementService(); enforcementService != nil {
 		apiServer.SetEnforcementService(enforcementService)
 	} else {
 		logging.Warn("No enforcement service available - API server will not have rule refresh capability")
 	}
-	
+
 	apiServer.RegisterRoutes(a.httpServer)
 
 	// Setup static file server for web dashboard

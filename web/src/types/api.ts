@@ -111,6 +111,19 @@ export interface DashboardStats {
   quotas_near_limit: number;
 }
 
+export interface ApplicationInfo {
+  name: string;
+  path: string;
+  executable: string;
+  description?: string;
+  category?: string;
+}
+
+export interface ApplicationDiscoveryResponse {
+  applications: ApplicationInfo[];
+  count: number;
+}
+
 // Request/Response Types
 export interface CreateListRequest {
   name: string;

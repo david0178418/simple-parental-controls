@@ -208,8 +208,8 @@ class ApiClient {
 
   // List Entries API
   public async getListEntries(listId: number): Promise<ListEntry[]> {
-    const response = await this.request<{ entries: ListEntry[] }>(`/api/v1/lists/${listId}/entries`);
-    return response.entries ?? [];
+    const response = await this.request<ListEntry[]>(`/api/v1/lists/${listId}/entries`);
+    return response ?? [];
   }
 
   public async createListEntry(entry: CreateListEntryRequest): Promise<ListEntry> {

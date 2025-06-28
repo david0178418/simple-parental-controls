@@ -143,11 +143,20 @@ func (a *App) Start(ctx context.Context) error {
 
 	// Initialize API server
 	repos := a.service.GetRepositoryManager()
-	apiServer := server.NewAPIServer(repos, a.config.Security.EnableAuth)
+
+	// Initialize authentication middleware if auth is enabled
+	var authMiddleware *server.AuthMiddleware
+	if a.config.Security.EnableAuth {
+		securityAdapter := NewSecurityServiceAdapter(a.securityService)
+		authMiddleware = server.NewAuthMiddleware(securityAdapter)
+	}
+
+	// Register API routes
+	apiServer := server.NewAPIServer(*repos, a.config.Security.EnableAuth)
 	apiServer.RegisterRoutes(a.httpServer)
 
 	// Setup static file server for web dashboard
-	if err := a.setupStaticFileServer(); err != nil {
+	if err := a.setupStaticFileServer(authMiddleware); err != nil {
 		a.service.Stop(ctx)
 		return fmt.Errorf("failed to setup static file server: %w", err)
 	}
@@ -310,7 +319,7 @@ func (a *App) GetService() *service.Service {
 }
 
 // setupStaticFileServer sets up the static file server for the web dashboard
-func (a *App) setupStaticFileServer() error {
+func (a *App) setupStaticFileServer(authMiddleware *server.AuthMiddleware) error {
 	staticRoot := a.config.Web.StaticDir
 	if staticRoot == "" {
 		staticRoot = "./web/build"
@@ -321,7 +330,7 @@ func (a *App) setupStaticFileServer() error {
 		logging.Warn("Static file directory does not exist",
 			logging.String("static_root", staticRoot))
 		// Create a simple filesystem that will return 404 for all files
-		return a.httpServer.SetupStaticFileServer(os.DirFS("."))
+		return a.httpServer.SetupStaticFileServer(os.DirFS("."), nil)
 	} else if err != nil {
 		return fmt.Errorf("failed to check static directory: %w", err)
 	}
@@ -330,7 +339,7 @@ func (a *App) setupStaticFileServer() error {
 	fileSystem := os.DirFS(staticRoot)
 
 	// Setup the static file server
-	if err := a.httpServer.SetupStaticFileServer(fileSystem); err != nil {
+	if err := a.httpServer.SetupStaticFileServer(fileSystem, authMiddleware); err != nil {
 		return fmt.Errorf("failed to configure static file server: %w", err)
 	}
 

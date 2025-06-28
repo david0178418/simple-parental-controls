@@ -360,7 +360,7 @@ func (s *Server) AddHandlerFunc(pattern string, handler http.HandlerFunc) {
 }
 
 // SetupStaticFileServer configures and registers the static file server
-func (s *Server) SetupStaticFileServer(fileSystem fs.FS) error {
+func (s *Server) SetupStaticFileServer(fileSystem fs.FS, authMiddleware *AuthMiddleware) error {
 	if s.config.StaticFileRoot == "" {
 		return fmt.Errorf("static file root not configured")
 	}
@@ -368,12 +368,24 @@ func (s *Server) SetupStaticFileServer(fileSystem fs.FS) error {
 	// Create static file server
 	staticServer := NewStaticFileServer(s.config, fileSystem)
 
+	// By default, the static server is unprotected
+	var protectedStaticServer http.Handler = staticServer
+
+	// If auth is enabled, protect the static file server
+	if authMiddleware != nil {
+		// Protect all routes except for the root (which should be public)
+		// The static file server will handle redirecting to /login
+		authMiddleware.AddPublicPath("/")
+		protectedStaticServer = authMiddleware.RequireAuth()(staticServer)
+	}
+
 	// Register the static file server for all unmatched routes
-	s.mux.Handle("/", staticServer)
+	s.mux.Handle("/", protectedStaticServer)
 
 	logging.Info("Static file server configured",
 		logging.String("static_root", s.config.StaticFileRoot),
-		logging.Bool("compression_enabled", s.config.EnableCompression))
+		logging.Bool("compression_enabled", s.config.EnableCompression),
+		logging.Bool("auth_enabled", authMiddleware != nil))
 
 	return nil
 }

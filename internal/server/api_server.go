@@ -1,7 +1,7 @@
 package server
 
 import (
-	"context"
+	
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -29,9 +29,9 @@ type APIServer struct {
 }
 
 // NewAPIServer creates a new API server
-func NewAPIServer(repos *models.RepositoryManager, authEnabled bool) *APIServer {
+func NewAPIServer(repoManager models.RepositoryManager, authEnabled bool) *APIServer {
 	return &APIServer{
-		repos:       repos,
+		repos:       &repoManager,
 		authEnabled: authEnabled,
 		startTime:   time.Now(),
 	}
@@ -39,76 +39,29 @@ func NewAPIServer(repos *models.RepositoryManager, authEnabled bool) *APIServer 
 
 // RegisterRoutes registers all API routes with the server
 func (api *APIServer) RegisterRoutes(server *Server) {
-	// Create standardized middleware chains
-	publicMiddleware := NewMiddlewareChain(
-		RequestIDMiddleware(),
-		LoggingMiddleware(),
-		RecoveryMiddleware(),
-		SecurityHeadersMiddleware(),
-		JSONMiddleware(),
-		ContentLengthMiddleware(1024*1024),
-	)
+	
 
-	protectedMiddleware := NewMiddlewareChain(
-		RequestIDMiddleware(),
-		LoggingMiddleware(),
-		RecoveryMiddleware(),
-		SecurityHeadersMiddleware(),
-		JSONMiddleware(),
-		ContentLengthMiddleware(1024*1024),
-		api.authMiddleware,
-	)
+	// Initialize API servers
+	var authMiddleware *AuthMiddleware
+	if api.authEnabled {
+		authAPIServer := NewAuthAPIServer(api.repos, authMiddleware)
+		authAPIServer.RegisterRoutes(server)
+	} else {
+		// Register a simplified API server if auth is disabled
+		simpleAPIServer := NewSimpleAPIServer(api.repos)
+		simpleAPIServer.RegisterRoutes(server)
+	}
 
-	// Basic system endpoints (always available)
-	server.AddHandler("/api/v1/ping", publicMiddleware.ThenFunc(api.handlePing))
-	server.AddHandler("/api/v1/info", publicMiddleware.ThenFunc(api.handleInfo))
+	// Dashboard API is always protected
+		dashboardAPIServer := NewDashboardAPIServer(api.repos)
+		dashboardAPIServer.RegisterRoutes(server)
 
-	// Authentication endpoints
-	server.AddHandler("/api/v1/auth/login", publicMiddleware.ThenFunc(api.handleLogin))
-	server.AddHandler("/api/v1/auth/logout", protectedMiddleware.ThenFunc(api.handleLogout))
-	server.AddHandler("/api/v1/auth/check", publicMiddleware.ThenFunc(api.handleAuthCheck))
-	server.AddHandler("/api/v1/auth/change-password", protectedMiddleware.ThenFunc(api.handleChangePassword))
-
-	// Dashboard endpoints
-	server.AddHandler("/api/v1/dashboard/stats", protectedMiddleware.ThenFunc(api.handleDashboardStats))
-
-	// List management endpoints
-	server.AddHandler("/api/v1/lists", protectedMiddleware.ThenFunc(api.handleLists))
-	server.AddHandler("/api/v1/lists/", protectedMiddleware.ThenFunc(api.handleListsWithID))
-
-	// List entry endpoints
-	server.AddHandler("/api/v1/entries/", protectedMiddleware.ThenFunc(api.handleEntries))
-
-	logging.Info("API routes registered",
-		logging.Bool("auth_enabled", api.authEnabled),
-		logging.Int("total_endpoints", 10))
+	// TLS API is always public
+	tlsAPIServer := NewTLSAPIServer(server)
+	tlsAPIServer.RegisterRoutes(server)
 }
 
-// authMiddleware provides authentication checking
-func (api *APIServer) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !api.authEnabled {
-			// When auth is disabled, add mock user to context
-			ctx := context.WithValue(r.Context(), authenticatedKey, true)
-			ctx = context.WithValue(ctx, userKey, &mockUser{})
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
 
-		// When auth is enabled, perform basic session validation
-		sessionID := api.getSessionFromRequest(r)
-		if sessionID == "" {
-			api.writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
-			return
-		}
-
-		// For now, accept any non-empty session when auth is enabled
-		// TODO: Implement proper session validation
-		ctx := context.WithValue(r.Context(), authenticatedKey, true)
-		ctx = context.WithValue(ctx, userKey, &mockUser{})
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
 
 // Basic system endpoints
 func (api *APIServer) handlePing(w http.ResponseWriter, r *http.Request) {

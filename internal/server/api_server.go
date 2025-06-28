@@ -39,8 +39,6 @@ func NewAPIServer(repoManager models.RepositoryManager, authEnabled bool) *APISe
 
 // RegisterRoutes registers all API routes with the server
 func (api *APIServer) RegisterRoutes(server *Server) {
-	
-
 	// Initialize API servers
 	var authMiddleware *AuthMiddleware
 	if api.authEnabled {
@@ -53,158 +51,25 @@ func (api *APIServer) RegisterRoutes(server *Server) {
 	}
 
 	// Dashboard API is always protected
-		dashboardAPIServer := NewDashboardAPIServer(api.repos)
-		dashboardAPIServer.RegisterRoutes(server)
+	dashboardAPIServer := NewDashboardAPIServer(api.repos)
+	dashboardAPIServer.RegisterRoutes(server)
 
 	// TLS API is always public
 	tlsAPIServer := NewTLSAPIServer(server)
 	tlsAPIServer.RegisterRoutes(server)
+	
+	// Register dashboard stats and list management endpoints
+	server.AddHandlerFunc("/api/v1/dashboard/stats", api.handleDashboardStats)
+	server.AddHandlerFunc("/api/v1/lists", api.handleLists)
+	
+	// Pattern for list IDs and entries - this needs more sophisticated routing but will work for now
+	server.AddHandler("/api/v1/lists/", http.HandlerFunc(api.handleListsWithID))
+	server.AddHandler("/api/v1/entries/", http.HandlerFunc(api.handleEntries))
 }
 
 
 
-// Basic system endpoints
-func (api *APIServer) handlePing(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		api.writeErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	api.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"message":   "pong",
-		"timestamp": time.Now(),
-	})
-}
-
-func (api *APIServer) handleInfo(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		api.writeErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	api.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"name":         "Parental Control API",
-		"version":      "1.0.0",
-		"timestamp":    time.Now(),
-		"auth_enabled": api.authEnabled,
-		"uptime":       time.Since(api.startTime).String(),
-	})
-}
-
-// Authentication endpoints
-func (api *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		api.writeErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	var loginReq struct {
-		Username   string `json:"username"`
-		Password   string `json:"password"`
-		RememberMe bool   `json:"remember_me"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
-		api.writeErrorResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	if loginReq.Username == "" || loginReq.Password == "" {
-		api.writeErrorResponse(w, http.StatusBadRequest, "Username and password required")
-		return
-	}
-
-	// Create session ID
-	sessionID := fmt.Sprintf("session_%d", time.Now().Unix())
-	api.setSessionCookie(w, r, sessionID)
-
-	response := map[string]interface{}{
-		"success":    true,
-		"message":    "Login successful",
-		"session_id": sessionID,
-		"expires_at": time.Now().Add(24 * time.Hour),
-		"user": map[string]interface{}{
-			"id":       1,
-			"username": loginReq.Username,
-			"is_admin": true,
-		},
-	}
-
-	if !api.authEnabled {
-		response["message"] = "Login successful (auth disabled)"
-	}
-
-	api.writeJSONResponse(w, http.StatusOK, response)
-}
-
-func (api *APIServer) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		api.writeErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	// Clear session cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session_id",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteStrictMode,
-	})
-
-	api.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "Logged out successfully",
-	})
-}
-
-func (api *APIServer) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		api.writeErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	authenticated := true
-	if api.authEnabled {
-		sessionID := api.getSessionFromRequest(r)
-		authenticated = sessionID != ""
-	}
-
-	api.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"authenticated": authenticated,
-		"timestamp":     time.Now().UTC(),
-		"auth_enabled":  api.authEnabled,
-	})
-}
-
-func (api *APIServer) handleChangePassword(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		api.writeErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	var req struct {
-		OldPassword string `json:"old_password"`
-		NewPassword string `json:"new_password"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.writeErrorResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	message := "Password changed successfully"
-	if !api.authEnabled {
-		message = "Password change simulated (auth disabled)"
-	}
-
-	api.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": message,
-	})
-}
+// Dashboard and business logic endpoints
 
 // Dashboard endpoints
 func (api *APIServer) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
@@ -651,32 +516,6 @@ func (api *APIServer) handleDeleteEntry(w http.ResponseWriter, r *http.Request, 
 }
 
 // Helper methods
-func (api *APIServer) getSessionFromRequest(r *http.Request) string {
-	// Try cookie first
-	if cookie, err := r.Cookie("session_id"); err == nil {
-		return cookie.Value
-	}
-
-	// Try Authorization header
-	auth := r.Header.Get("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") {
-		return strings.TrimPrefix(auth, "Bearer ")
-	}
-
-	return ""
-}
-
-func (api *APIServer) setSessionCookie(w http.ResponseWriter, r *http.Request, sessionID string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session_id",
-		Value:    sessionID,
-		Path:     "/",
-		MaxAge:   int((24 * time.Hour).Seconds()),
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteStrictMode,
-	})
-}
 
 func (api *APIServer) writeJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")

@@ -136,8 +136,15 @@ class ApiClient {
 
   public async checkAuth(): Promise<boolean> {
     try {
-      await this.request('/api/v1/auth/check');
-      return true;
+      const response = await this.request<{authenticated: boolean, auth_enabled: boolean}>('/api/v1/auth/check');
+      
+      // If auth is disabled, always consider user authenticated if they have a token
+      if (!response.auth_enabled) {
+        return response.authenticated;
+      }
+      
+      // If auth is enabled, check the authentication status
+      return response.authenticated;
     } catch {
       this.setAuthToken(null);
       return false;

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"parental-control/internal/logging"
 	"parental-control/internal/models"
+	"parental-control/internal/service"
 )
 
 // Context key types to avoid collisions
@@ -22,9 +24,10 @@ const (
 
 // APIServer handles all REST API endpoints for the application
 type APIServer struct {
-	repos       *models.RepositoryManager
-	authEnabled bool
-	startTime   time.Time
+	repos              *models.RepositoryManager
+	enforcementService *service.EnforcementService
+	authEnabled        bool
+	startTime          time.Time
 }
 
 // NewAPIServer creates a new API server
@@ -34,6 +37,11 @@ func NewAPIServer(repoManager models.RepositoryManager, authEnabled bool) *APISe
 		authEnabled: authEnabled,
 		startTime:   time.Now(),
 	}
+}
+
+// SetEnforcementService sets the enforcement service for the API server
+func (api *APIServer) SetEnforcementService(enforcementService *service.EnforcementService) {
+	api.enforcementService = enforcementService
 }
 
 // RegisterRoutes registers all API routes with the server
@@ -56,6 +64,12 @@ func (api *APIServer) RegisterRoutes(server *Server) {
 	// TLS API is always public
 	tlsAPIServer := NewTLSAPIServer(server)
 	tlsAPIServer.RegisterRoutes(server)
+
+	// Enforcement API if available
+	if api.enforcementService != nil {
+		enforcementAPIServer := NewEnforcementAPIServer(api.enforcementService)
+		enforcementAPIServer.RegisterRoutes(server)
+	}
 
 	// Register dashboard stats and list management endpoints
 	server.AddHandlerFunc("/api/v1/dashboard/stats", api.handleDashboardStats)
@@ -275,6 +289,9 @@ func (api *APIServer) handleCreateList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Trigger rule refresh after list creation
+	api.refreshRulesAsync(ctx)
+
 	api.writeJSONResponse(w, http.StatusCreated, list)
 }
 
@@ -317,6 +334,9 @@ func (api *APIServer) handleUpdateList(w http.ResponseWriter, r *http.Request, l
 		return
 	}
 
+	// Trigger rule refresh after list update
+	api.refreshRulesAsync(ctx)
+
 	api.writeJSONResponse(w, http.StatusOK, existingList)
 }
 
@@ -331,6 +351,9 @@ func (api *APIServer) handleDeleteList(w http.ResponseWriter, r *http.Request, l
 		api.writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete list: %v", err))
 		return
 	}
+
+	// Trigger rule refresh after list deletion
+	api.refreshRulesAsync(ctx)
 
 	api.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -405,6 +428,9 @@ func (api *APIServer) handleCreateListEntry(w http.ResponseWriter, r *http.Reque
 		api.writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create entry: %v", err))
 		return
 	}
+
+	// Trigger rule refresh after entry creation
+	api.refreshRulesAsync(ctx)
 
 	api.writeJSONResponse(w, http.StatusCreated, entry)
 }
@@ -491,6 +517,9 @@ func (api *APIServer) handleUpdateEntry(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// Trigger rule refresh after entry update
+	api.refreshRulesAsync(ctx)
+
 	api.writeJSONResponse(w, http.StatusOK, existingEntry)
 }
 
@@ -505,6 +534,9 @@ func (api *APIServer) handleDeleteEntry(w http.ResponseWriter, r *http.Request, 
 		api.writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete entry: %v", err))
 		return
 	}
+
+	// Trigger rule refresh after entry deletion
+	api.refreshRulesAsync(ctx)
 
 	api.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -538,3 +570,19 @@ func (m *mockUser) GetID() int          { return 1 }
 func (m *mockUser) GetUsername() string { return "admin" }
 func (m *mockUser) GetEmail() string    { return "admin@example.com" }
 func (m *mockUser) HasAdminRole() bool  { return true }
+
+// refreshRulesAsync triggers an asynchronous rule refresh
+func (api *APIServer) refreshRulesAsync(ctx context.Context) {
+	if api.enforcementService != nil {
+		logging.Info("Triggering rule refresh")
+		go func() {
+			if err := api.enforcementService.RefreshRules(ctx); err != nil {
+				logging.Error("Failed to refresh rules after API change", logging.Err(err))
+			} else {
+				logging.Debug("Rules refreshed after API change")
+			}
+		}()
+	} else {
+		logging.Warn("Cannot refresh rules - enforcement service is nil")
+	}
+}

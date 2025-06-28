@@ -1,6 +1,11 @@
 package enforcement
 
-import "time"
+import (
+	"context"
+	"time"
+
+	"parental-control/internal/models"
+)
 
 // FilterRule represents a network filtering rule
 type FilterRule struct {
@@ -45,4 +50,17 @@ type FilterDecision struct {
 	ProcessInfo *ProcessInfo `json:"process_info,omitempty"`
 	Timestamp   time.Time    `json:"timestamp"`
 	URL         string       `json:"url"`
+}
+
+// AuditLogger interface for audit logging functionality
+type AuditLogger interface {
+	LogEnforcementAction(
+		ctx context.Context,
+		action models.ActionType,
+		targetType models.TargetType,
+		targetValue string,
+		ruleType string,
+		ruleID *int,
+		details map[string]interface{},
+	) error
 }

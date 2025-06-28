@@ -8,7 +8,6 @@ import (
 
 	"parental-control/internal/logging"
 	"parental-control/internal/models"
-	"parental-control/internal/service"
 )
 
 // EnforcementEngine coordinates process monitoring and network filtering
@@ -19,7 +18,7 @@ type EnforcementEngine struct {
 	identifier     *ProcessIdentifier
 
 	// Audit logging
-	auditService *service.AuditService
+	auditService AuditLogger
 
 	// Configuration
 	config *EnforcementConfig
@@ -93,7 +92,7 @@ type EnforcementStats struct {
 }
 
 // NewEnforcementEngine creates a new enforcement engine
-func NewEnforcementEngine(config *EnforcementConfig, logger logging.Logger, auditService *service.AuditService) *EnforcementEngine {
+func NewEnforcementEngine(config *EnforcementConfig, logger logging.Logger, auditService AuditLogger) *EnforcementEngine {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	if config.ProcessPollInterval == 0 {
@@ -101,6 +100,11 @@ func NewEnforcementEngine(config *EnforcementConfig, logger logging.Logger, audi
 	}
 
 	dnsBlockerConfig := &DNSBlockerConfig{
+		ListenAddr:    ":53",
+		BlockIPv4:     "0.0.0.0",
+		BlockIPv6:     "::",
+		UpstreamDNS:   []string{"8.8.8.8:53", "1.1.1.1:53"},
+		CacheTTL:      300 * time.Second,
 		EnableLogging: true,
 	}
 	dnsBlocker, err := NewDNSBlocker(dnsBlockerConfig, logger)
@@ -261,6 +265,25 @@ func (ee *EnforcementEngine) RemoveNetworkRule(ruleID string) error {
 	}
 
 	ee.logger.Info("Removed network rule", logging.String("rule_id", ruleID))
+	return nil
+}
+
+// GetCurrentRules returns all currently active rules from the DNS blocker
+func (ee *EnforcementEngine) GetCurrentRules() map[string]*FilterRule {
+	if ee.dnsBlocker == nil {
+		return make(map[string]*FilterRule)
+	}
+	return ee.dnsBlocker.GetAllRules()
+}
+
+// ClearAllRules removes all rules from the enforcement engine
+func (ee *EnforcementEngine) ClearAllRules() error {
+	if ee.dnsBlocker == nil {
+		return fmt.Errorf("dns blocker not enabled")
+	}
+	
+	ee.dnsBlocker.ClearAllRules()
+	ee.logger.Info("Cleared all enforcement rules")
 	return nil
 }
 

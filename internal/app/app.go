@@ -10,6 +10,7 @@ import (
 
 	"parental-control/internal/auth"
 	"parental-control/internal/config"
+	"parental-control/internal/enforcement"
 	"parental-control/internal/logging"
 	"parental-control/internal/server"
 	"parental-control/internal/service"
@@ -25,8 +26,14 @@ type Config struct {
 // DefaultConfig returns application configuration with sensible defaults
 func DefaultConfig() Config {
 	defaultConfig := config.Default()
+	serviceConfig := service.DefaultConfig()
+	
+	// Convert enforcement config from main config to engine config
+	serviceConfig.EnforcementConfig = convertEnforcementConfig(defaultConfig.Enforcement)
+	serviceConfig.EnforcementEnabled = defaultConfig.Enforcement.Enabled
+	
 	return Config{
-		Service:  service.DefaultConfig(),
+		Service:  serviceConfig,
 		Web:      defaultConfig.Web,
 		Security: defaultConfig.Security,
 	}
@@ -153,6 +160,15 @@ func (a *App) Start(ctx context.Context) error {
 
 	// Register API routes
 	apiServer := server.NewAPIServer(*repos, a.config.Security.EnableAuth)
+	
+	// Set enforcement service if available
+	if enforcementService := a.service.GetEnforcementService(); enforcementService != nil {
+		logging.Info("Setting enforcement service on API server")
+		apiServer.SetEnforcementService(enforcementService)
+	} else {
+		logging.Warn("No enforcement service available - API server will not have rule refresh capability")
+	}
+	
 	apiServer.RegisterRoutes(a.httpServer)
 
 	// Setup static file server for web dashboard
@@ -348,4 +364,18 @@ func (a *App) setupStaticFileServer(authMiddleware *server.AuthMiddleware) error
 		logging.Bool("web_enabled", a.config.Web.Enabled))
 
 	return nil
+}
+
+// convertEnforcementConfig converts config.EnforcementConfig to enforcement.EnforcementConfig
+func convertEnforcementConfig(src config.EnforcementConfig) enforcement.EnforcementConfig {
+	return enforcement.EnforcementConfig{
+		ProcessPollInterval:    src.ProcessPollInterval,
+		EnableNetworkFiltering: src.EnableNetworkFiltering,
+		MaxConcurrentChecks:    src.MaxConcurrentChecks,
+		CacheTimeout:           src.CacheTimeout,
+		BlockUnknownProcesses:  src.BlockUnknownProcesses,
+		LogAllActivity:         src.LogAllActivity,
+		EnableEmergencyMode:    src.EnableEmergencyMode,
+		EmergencyWhitelist:     src.EmergencyWhitelist,
+	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"parental-control/internal/database"
+	"parental-control/internal/enforcement"
 	"parental-control/internal/logging"
 	"parental-control/internal/models"
 )
@@ -60,6 +61,10 @@ type Config struct {
 	DatabaseConfig database.Config
 	// HealthCheckInterval for periodic health checks
 	HealthCheckInterval time.Duration
+	// EnforcementConfig for enforcement engine
+	EnforcementConfig enforcement.EnforcementConfig
+	// EnforcementEnabled indicates if enforcement should be started
+	EnforcementEnabled bool
 }
 
 // DefaultConfig returns a service configuration with sensible defaults
@@ -69,21 +74,33 @@ func DefaultConfig() Config {
 		ShutdownTimeout:     30 * time.Second,
 		DatabaseConfig:      database.DefaultConfig(),
 		HealthCheckInterval: 30 * time.Second,
+		EnforcementConfig: enforcement.EnforcementConfig{
+			ProcessPollInterval:    10 * time.Second,
+			EnableNetworkFiltering: true,
+			MaxConcurrentChecks:    5,
+			CacheTimeout:           30 * time.Second,
+			BlockUnknownProcesses:  false, // Start with safer defaults
+			LogAllActivity:         true,
+			EnableEmergencyMode:    false,
+			EmergencyWhitelist:     []string{"192.168.1.1"},
+		},
+		EnforcementEnabled: true,
 	}
 }
 
 // Service manages the application lifecycle
 type Service struct {
-	config    Config
-	state     ServiceState
-	stateMu   sync.RWMutex
-	db        *database.DB
-	repos     *models.RepositoryManager
-	ctx       context.Context
-	cancel    context.CancelFunc
-	startTime time.Time
-	errors    []error
-	errorsMu  sync.RWMutex
+	config            Config
+	state             ServiceState
+	stateMu           sync.RWMutex
+	db                *database.DB
+	repos             *models.RepositoryManager
+	enforcementService *EnforcementService
+	ctx               context.Context
+	cancel            context.CancelFunc
+	startTime         time.Time
+	errors            []error
+	errorsMu          sync.RWMutex
 }
 
 // New creates a new service instance with the given configuration
@@ -115,6 +132,12 @@ func (s *Service) Start() error {
 
 	if err := s.initializeRepositories(); err != nil {
 		s.addError(fmt.Errorf("repository initialization failed: %w", err))
+		s.setState(StateError)
+		return err
+	}
+
+	if err := s.initializeEnforcementService(); err != nil {
+		s.addError(fmt.Errorf("enforcement service initialization failed: %w", err))
 		s.setState(StateError)
 		return err
 	}
@@ -209,12 +232,25 @@ func (s *Service) GetStatus() map[string]interface{} {
 		}
 	}
 
+	if s.enforcementService != nil {
+		status["enforcement"] = map[string]interface{}{
+			"running": s.enforcementService.IsRunning(),
+			"stats":   s.enforcementService.GetStats(),
+			"system":  s.enforcementService.GetSystemInfo(),
+		}
+	}
+
 	return status
 }
 
 // GetRepositoryManager returns the repository manager for use by API servers
 func (s *Service) GetRepositoryManager() *models.RepositoryManager {
 	return s.repos
+}
+
+// GetEnforcementService returns the enforcement service for use by API servers
+func (s *Service) GetEnforcementService() *EnforcementService {
+	return s.enforcementService
 }
 
 // IsHealthy performs a health check and returns the result
@@ -275,6 +311,32 @@ func (s *Service) initializeRepositories() error {
 	}
 
 	logging.Info("Repositories initialized successfully")
+	return nil
+}
+
+// initializeEnforcementService creates and starts the enforcement service
+func (s *Service) initializeEnforcementService() error {
+	logging.Info("Checking enforcement configuration", 
+		logging.Bool("enforcement_enabled", s.config.EnforcementEnabled))
+		
+	if !s.config.EnforcementEnabled {
+		logging.Info("Enforcement service disabled in configuration")
+		return nil
+	}
+
+	logging.Info("Initializing enforcement service")
+
+	s.enforcementService = NewEnforcementService(
+		s.repos,
+		logging.NewDefault(),
+		s.config.EnforcementConfig,
+	)
+
+	if err := s.enforcementService.Start(s.ctx); err != nil {
+		return fmt.Errorf("failed to start enforcement service: %w", err)
+	}
+
+	logging.Info("Enforcement service initialized successfully")
 	return nil
 }
 
@@ -342,6 +404,13 @@ func (s *Service) healthCheckRoutine() {
 // cleanup performs cleanup tasks during shutdown
 func (s *Service) cleanup(ctx context.Context) {
 	logging.Info("Performing cleanup tasks")
+
+	// Stop enforcement service first
+	if s.enforcementService != nil {
+		if err := s.enforcementService.Stop(ctx); err != nil {
+			logging.Error("Error stopping enforcement service", logging.Err(err))
+		}
+	}
 
 	// Close database connection
 	if s.db != nil {

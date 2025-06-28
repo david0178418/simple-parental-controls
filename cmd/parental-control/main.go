@@ -65,6 +65,8 @@ func main() {
 			ShutdownTimeout:     appConfig.Service.ShutdownTimeout,
 			DatabaseConfig:      appConfig.Database,
 			HealthCheckInterval: appConfig.Service.HealthCheckInterval,
+			EnforcementConfig:   convertToServiceEnforcementConfig(appConfig.Enforcement),
+			EnforcementEnabled:  appConfig.Enforcement.Enabled,
 		},
 		Web:      appConfig.Web,
 		Security: appConfig.Security,
@@ -77,64 +79,26 @@ func main() {
 		logging.Fatal("Failed to start application", logging.Err(err))
 	}
 
-	// Initialize and start the enforcement engine only if enabled
-	if appConfig.Enforcement.Enabled {
-		engineConfig := convertToEnforcementConfig(appConfig.Enforcement)
-		enforcementEngine := enforcement.NewEnforcementEngine(engineConfig, logger, nil)
-		if err := enforcementEngine.Start(ctx); err != nil {
-			logging.Error("Failed to start enforcement engine, blocking is not active", logging.Err(err))
-		} else {
-			logging.Info("Enforcement engine started")
-			// Load rules into the engine
-			loadRulesIntoEngine(ctx, application.GetService(), enforcementEngine)
-		}
+	// Wait for shutdown signal - enforcement is now handled by the service layer
+	<-ctx.Done()
 
-		// Wait for shutdown signal
-		<-ctx.Done()
+	logging.Info("Shutting down application...")
 
-		logging.Info("Shutting down application...")
+	// Create a shutdown context with a timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), appConfig.Service.ShutdownTimeout)
+	defer cancel()
 
-		// Create a shutdown context with a timeout
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), appConfig.Service.ShutdownTimeout)
-		defer cancel()
-
-		// Stop enforcement engine first
-		if enforcementEngine.IsRunning() {
-			if err := enforcementEngine.Stop(shutdownCtx); err != nil {
-				logging.Error("Error stopping enforcement engine", logging.Err(err))
-			} else {
-				logging.Info("Enforcement engine stopped")
-			}
-		}
-
-		// Stop the main application
-		if err := application.Stop(shutdownCtx); err != nil {
-			logging.Error("Error during application shutdown", logging.Err(err))
-		}
-	} else {
-		logging.Info("Enforcement engine disabled in configuration")
-
-		// Wait for shutdown signal
-		<-ctx.Done()
-
-		logging.Info("Shutting down application...")
-
-		// Create a shutdown context with a timeout
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), appConfig.Service.ShutdownTimeout)
-		defer cancel()
-
-		// Stop the main application
-		if err := application.Stop(shutdownCtx); err != nil {
-			logging.Error("Error during application shutdown", logging.Err(err))
-		}
+	// Stop the main application (which includes the enforcement service)
+	if err := application.Stop(shutdownCtx); err != nil {
+		logging.Error("Error during application shutdown", logging.Err(err))
 	}
 
 	logging.Info("Application stopped.")
 }
 
-// convertToEnforcementConfig converts config.EnforcementConfig to enforcement.EnforcementConfig
-func convertToEnforcementConfig(cfg config.EnforcementConfig) *enforcement.EnforcementConfig {
-	return &enforcement.EnforcementConfig{
+// convertToServiceEnforcementConfig converts config.EnforcementConfig to enforcement.EnforcementConfig for service layer
+func convertToServiceEnforcementConfig(cfg config.EnforcementConfig) enforcement.EnforcementConfig {
+	return enforcement.EnforcementConfig{
 		ProcessPollInterval:    cfg.ProcessPollInterval,
 		EnableNetworkFiltering: cfg.EnableNetworkFiltering,
 		MaxConcurrentChecks:    cfg.MaxConcurrentChecks,
@@ -144,72 +108,4 @@ func convertToEnforcementConfig(cfg config.EnforcementConfig) *enforcement.Enfor
 		EnableEmergencyMode:    cfg.EnableEmergencyMode,
 		EmergencyWhitelist:     cfg.EmergencyWhitelist,
 	}
-}
-
-func loadRulesIntoEngine(ctx context.Context, appService *service.Service, engine *enforcement.EnforcementEngine) {
-	if appService == nil {
-		logging.Error("Cannot load rules, service is not available")
-		return
-	}
-
-	repos := appService.GetRepositoryManager()
-	if repos == nil {
-		logging.Error("Cannot load rules, repository manager is not available")
-		return
-	}
-
-	lists, err := repos.List.GetAll(ctx)
-	if err != nil {
-		logging.Error("Failed to get lists for rule loading", logging.Err(err))
-		return
-	}
-
-	logging.Info("Loading rules into enforcement engine...", logging.Int("list_count", len(lists)))
-	ruleCount := 0
-
-	for _, list := range lists {
-		if !list.Enabled {
-			continue
-		}
-
-		entries, err := repos.ListEntry.GetByListID(ctx, list.ID)
-		if err != nil {
-			logging.Error("Failed to get entries for list",
-				logging.Err(err),
-				logging.Int("list_id", list.ID))
-			continue
-		}
-
-		for _, entry := range entries {
-			if !entry.Enabled {
-				continue
-			}
-
-			rule := &enforcement.FilterRule{
-				ID:        fmt.Sprintf("entry-%d", entry.ID),
-				Name:      fmt.Sprintf("%s - %s", list.Name, entry.Pattern),
-				Pattern:   entry.Pattern,
-				MatchType: enforcement.MatchType(entry.PatternType),
-				Priority:  100, // You might want a more sophisticated priority system
-				Enabled:   true,
-			}
-
-			// The enforcement engine expects "block" or "allow", but lists are "blacklist" or "whitelist"
-			if list.Type == "blacklist" {
-				rule.Action = enforcement.ActionBlock
-			} else {
-				rule.Action = enforcement.ActionAllow
-			}
-
-			if err := engine.AddNetworkRule(rule); err != nil {
-				logging.Error("Failed to add network rule to engine",
-					logging.Err(err),
-					logging.String("rule_id", rule.ID))
-			} else {
-				ruleCount++
-			}
-		}
-	}
-
-	logging.Info("Finished loading rules into enforcement engine", logging.Int("rules_loaded", ruleCount))
 }

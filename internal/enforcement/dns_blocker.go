@@ -175,6 +175,30 @@ func (b *DNSBlocker) RemoveRule(pattern string) error {
 	return nil
 }
 
+// GetAllRules returns a copy of all current rules
+func (b *DNSBlocker) GetAllRules() map[string]*FilterRule {
+	b.rulesMu.RLock()
+	defer b.rulesMu.RUnlock()
+
+	// Create a copy to avoid race conditions
+	rules := make(map[string]*FilterRule, len(b.rules))
+	for pattern, rule := range b.rules {
+		rules[pattern] = rule
+	}
+	return rules
+}
+
+// ClearAllRules removes all rules
+func (b *DNSBlocker) ClearAllRules() {
+	b.rulesMu.Lock()
+	defer b.rulesMu.Unlock()
+	
+	b.rules = make(map[string]*FilterRule)
+	if b.config.EnableLogging {
+		b.logger.Debug("Cleared all DNS rules")
+	}
+}
+
 func (b *DNSBlocker) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	b.statsMu.Lock()
 	b.stats.TotalQueries++

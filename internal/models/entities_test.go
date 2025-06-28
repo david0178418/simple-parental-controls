@@ -234,13 +234,13 @@ func TestQuotaRuleDuration(t *testing.T) {
 
 func TestQuotaUsageCalculations(t *testing.T) {
 	usage := QuotaUsage{
-		ID:           1,
-		QuotaRuleID:  1,
-		PeriodStart:  time.Now().Add(-24 * time.Hour),
-		PeriodEnd:    time.Now(),
-		UsedSeconds:  1800, // 30 minutes
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		ID:          1,
+		QuotaRuleID: 1,
+		PeriodStart: time.Now().Add(-24 * time.Hour),
+		PeriodEnd:   time.Now(),
+		UsedSeconds: 1800, // 30 minutes
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	// Test used duration
@@ -281,7 +281,7 @@ func TestAuditLogDetails(t *testing.T) {
 
 	// Test setting details
 	details := map[string]interface{}{
-		"reason": "blocked by rule",
+		"reason":  "blocked by rule",
 		"rule_id": 123,
 	}
 
@@ -409,4 +409,4 @@ func TestJSONMarshaling(t *testing.T) {
 			t.Errorf("Failed to unmarshal entity %d: %v", i, err)
 		}
 	}
-} 
+}

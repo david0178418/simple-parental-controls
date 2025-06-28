@@ -209,4 +209,4 @@ func TestGlobalLogger(t *testing.T) {
 	if globalLogger != logger {
 		t.Error("GetGlobalLogger() should return the same logger instance")
 	}
-} 
+}

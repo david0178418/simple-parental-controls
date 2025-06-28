@@ -1,7 +1,6 @@
 package server
 
 import (
-	
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -57,17 +56,15 @@ func (api *APIServer) RegisterRoutes(server *Server) {
 	// TLS API is always public
 	tlsAPIServer := NewTLSAPIServer(server)
 	tlsAPIServer.RegisterRoutes(server)
-	
+
 	// Register dashboard stats and list management endpoints
 	server.AddHandlerFunc("/api/v1/dashboard/stats", api.handleDashboardStats)
 	server.AddHandlerFunc("/api/v1/lists", api.handleLists)
-	
+
 	// Pattern for list IDs and entries - this needs more sophisticated routing but will work for now
 	server.AddHandler("/api/v1/lists/", http.HandlerFunc(api.handleListsWithID))
 	server.AddHandler("/api/v1/entries/", http.HandlerFunc(api.handleEntries))
 }
-
-
 
 // Dashboard and business logic endpoints
 

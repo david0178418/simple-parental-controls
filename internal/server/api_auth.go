@@ -31,7 +31,7 @@ func (s *AuthAPIServer) RegisterRoutes(server *Server) {
 	// Register basic ping and info endpoints
 	server.AddHandlerFunc("/api/v1/ping", s.handlePing)
 	server.AddHandlerFunc("/api/v1/info", s.handleInfo)
-	
+
 	// Register authentication endpoints - these handle real authentication
 	server.AddHandlerFunc("/api/v1/auth/login", s.handleLogin)
 	server.AddHandlerFunc("/api/v1/auth/logout", s.handleLogout)
@@ -43,7 +43,7 @@ func (s *AuthAPIServer) RegisterRoutes(server *Server) {
 	server.AddHandlerFunc("/api/v1/auth/sessions", s.handleSessions)
 	server.AddHandlerFunc("/api/v1/auth/sessions/refresh", s.handleSessionRefresh)
 	server.AddHandlerFunc("/api/v1/auth/sessions/revoke", s.handleSessionRevoke)
-	
+
 	// Admin endpoints
 	server.AddHandlerFunc("/api/v1/auth/users", s.handleUsers)
 	server.AddHandlerFunc("/api/v1/auth/security/stats", s.handleSecurityStats)
@@ -312,10 +312,10 @@ func (s *AuthAPIServer) handleSecurityStats(w http.ResponseWriter, r *http.Reque
 	}
 
 	s.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"total_users":       1,
-		"active_sessions":   1,
-		"failed_attempts":   0,
-		"security_events":   0,
+		"total_users":     1,
+		"active_sessions": 1,
+		"failed_attempts": 0,
+		"security_events": 0,
 	})
 }
 

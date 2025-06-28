@@ -146,7 +146,7 @@ func (db *DB) getCurrentSchemaVersion() (int, error) {
 		FROM sqlite_master 
 		WHERE type='table' AND name='schema_versions'
 	`).Scan(&exists)
-	
+
 	if err != nil {
 		return 0, err
 	}
@@ -180,7 +180,7 @@ func (db *DB) applyMigrations(currentVersion int) error {
 		}
 
 		filename := entry.Name()
-		
+
 		// Read migration content
 		content, err := migrationsFS.ReadFile("migrations/" + filename)
 		if err != nil {
@@ -225,7 +225,7 @@ func (db *DB) HealthCheck() error {
 
 	// Check that required tables exist
 	requiredTables := []string{
-		"config", "lists", "list_entries", "time_rules", 
+		"config", "lists", "list_entries", "time_rules",
 		"quota_rules", "quota_usage", "audit_log", "schema_versions",
 	}
 
@@ -236,11 +236,11 @@ func (db *DB) HealthCheck() error {
 			FROM sqlite_master 
 			WHERE type='table' AND name=?
 		`, table).Scan(&exists)
-		
+
 		if err != nil {
 			return fmt.Errorf("failed to check table %s: %w", table, err)
 		}
-		
+
 		if !exists {
 			return fmt.Errorf("required table %s does not exist", table)
 		}
@@ -252,7 +252,7 @@ func (db *DB) HealthCheck() error {
 // GetStats returns database statistics
 func (db *DB) GetStats() (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
-	
+
 	// Connection pool stats
 	dbStats := db.conn.Stats()
 	stats["open_connections"] = dbStats.OpenConnections
@@ -275,4 +275,4 @@ func (db *DB) GetStats() (map[string]interface{}, error) {
 	}
 
 	return stats, nil
-} 
+}

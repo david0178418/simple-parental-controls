@@ -29,7 +29,7 @@ func (s *SimpleAPIServer) RegisterRoutes(server *Server) {
 	// Register basic ping and info endpoints
 	server.AddHandlerFunc("/api/v1/ping", s.handlePing)
 	server.AddHandlerFunc("/api/v1/info", s.handleInfo)
-	
+
 	// Register authentication endpoints - these return mock responses when auth is disabled
 	server.AddHandlerFunc("/api/v1/auth/login", s.handleLogin)
 	server.AddHandlerFunc("/api/v1/auth/logout", s.handleLogout)
@@ -78,7 +78,7 @@ func (s *SimpleAPIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Always return success when auth is disabled
 	sessionToken := "mock_session_" + fmt.Sprintf("%d", time.Now().Unix())
-	
+
 	// Set session cookie for compatibility
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_id",
@@ -89,7 +89,7 @@ func (s *SimpleAPIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 	})
-	
+
 	s.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
 		"success":    true,
 		"message":    "Login successful (auth disabled)",

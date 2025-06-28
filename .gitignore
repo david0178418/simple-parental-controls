@@ -8,3 +8,6 @@ bin
 *.log
 CLAUDE.md
 cookies.txt
+coverage.out
+coverage.html
+api-contract-test-results.txt

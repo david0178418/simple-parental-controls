@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -177,6 +178,12 @@ func (es *EnforcementService) SyncRules(ctx context.Context) error {
 		logging.Int("rules_skipped", rulesSkipped),
 		logging.Int("total_current", len(currentRules)),
 		logging.Int("total_desired", len(desiredRules)))
+
+	// Also enforce executable rules
+	if err := es.enforceExecutableRules(ctx); err != nil {
+		es.logger.Error("Failed to enforce executable rules", logging.Err(err))
+		// Don't fail the entire sync - executable enforcement is best effort
+	}
 	
 	return nil
 }
@@ -255,6 +262,11 @@ func (es *EnforcementService) GetSystemInfo() map[string]interface{} {
 
 // convertEntryToRule converts a database entry to an enforcement rule
 func (es *EnforcementService) convertEntryToRule(list *models.List, entry *models.ListEntry) *enforcement.FilterRule {
+	// Skip entries that are not URLs for DNS blocking (executable entries will be handled separately)
+	if entry.EntryType != models.EntryTypeURL {
+		return nil
+	}
+
 	// Determine action based on list type
 	var action enforcement.FilterAction
 	switch list.Type {
@@ -294,6 +306,105 @@ func (es *EnforcementService) convertEntryToRule(list *models.List, entry *model
 		Enabled:   entry.Enabled,
 		CreatedAt: entry.CreatedAt,
 		UpdatedAt: entry.UpdatedAt,
+	}
+}
+
+// getExecutableRulesFromDatabase gets all executable entries that should be enforced
+func (es *EnforcementService) getExecutableRulesFromDatabase(ctx context.Context) ([]models.ListEntry, error) {
+	var executableEntries []models.ListEntry
+
+	// Get all enabled lists
+	lists, err := es.repos.List.GetAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get lists: %w", err)
+	}
+
+	for _, list := range lists {
+		if !list.Enabled {
+			continue // Skip disabled lists
+		}
+
+		// Get entries for this list
+		entries, err := es.repos.ListEntry.GetByListID(ctx, list.ID)
+		if err != nil {
+			es.logger.Error("Failed to get entries for list", 
+				logging.Err(err), 
+				logging.Int("list_id", list.ID))
+			continue
+		}
+
+		// Filter for executable entries
+		for _, entry := range entries {
+			if entry.Enabled && entry.EntryType == models.EntryTypeExecutable {
+				// Add list information to the entry for context
+				entry.Description = fmt.Sprintf("[%s] %s", list.Name, entry.Description)
+				executableEntries = append(executableEntries, entry)
+			}
+		}
+	}
+
+	return executableEntries, nil
+}
+
+// enforceExecutableRules checks running processes against executable rules
+func (es *EnforcementService) enforceExecutableRules(ctx context.Context) error {
+	// Get executable rules from database
+	executableRules, err := es.getExecutableRulesFromDatabase(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get executable rules: %w", err)
+	}
+
+	if len(executableRules) == 0 {
+		return nil // No executable rules to enforce
+	}
+
+	// Get current running processes
+	processes, err := es.engine.GetProcesses(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get running processes: %w", err)
+	}
+
+	// Check each process against executable rules
+	for _, process := range processes {
+		for _, rule := range executableRules {
+			if es.processMatchesRule(process, rule) {
+				es.logger.Info("Process matches blocked executable rule",
+					logging.String("process", process.Name),
+					logging.Int("pid", process.PID),
+					logging.String("pattern", rule.Pattern))
+
+				// Kill the process
+				if err := es.engine.KillProcess(ctx, process.PID, true); err != nil {
+					es.logger.Error("Failed to kill blocked process",
+						logging.Err(err),
+						logging.String("process", process.Name),
+						logging.Int("pid", process.PID))
+				} else {
+					es.logger.Info("Successfully terminated blocked process",
+						logging.String("process", process.Name),
+						logging.Int("pid", process.PID))
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// processMatchesRule checks if a process matches an executable rule
+func (es *EnforcementService) processMatchesRule(process *enforcement.ProcessInfo, rule models.ListEntry) bool {
+	switch rule.PatternType {
+	case models.PatternTypeExact:
+		// Exact match on process name or path
+		return process.Name == rule.Pattern || process.Path == rule.Pattern
+	case models.PatternTypeWildcard:
+		// Wildcard match on process name or path
+		nameMatched, _ := filepath.Match(rule.Pattern, process.Name)
+		pathMatched, _ := filepath.Match(rule.Pattern, process.Path)
+		return nameMatched || pathMatched
+	default:
+		// Default to exact match
+		return process.Name == rule.Pattern || process.Path == rule.Pattern
 	}
 }
 

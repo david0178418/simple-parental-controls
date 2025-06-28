@@ -691,7 +691,18 @@ function ListsPage() {
             <Select
               value={entryForm.entry_type}
               label="Entry Type"
-              onChange={(e) => setEntryForm({ ...entryForm, entry_type: e.target.value as EntryType })}
+              onChange={(e) => {
+                const newEntryType = e.target.value as EntryType;
+                // Auto-reset pattern_type if switching to executable and current type is 'domain'
+                const newPatternType = newEntryType === 'executable' && entryForm.pattern_type === 'domain' 
+                  ? 'exact' 
+                  : entryForm.pattern_type;
+                setEntryForm({ 
+                  ...entryForm, 
+                  entry_type: newEntryType,
+                  pattern_type: newPatternType
+                });
+              }}
             >
               <MenuItem value="executable">Application Executable</MenuItem>
               <MenuItem value="url">Website URL</MenuItem>
@@ -707,8 +718,14 @@ function ListsPage() {
             sx={{ mb: 2 }}
             helperText={
               entryForm.entry_type === 'executable'
-                ? "e.g., 'chrome.exe' or 'Spotify'"
-                : "e.g., '*.example.com' or 'youtube.com'"
+                ? entryForm.pattern_type === 'wildcard'
+                  ? "e.g., 'chrom*', '*.exe', 'game*'"
+                  : "e.g., 'firefox', 'chrome.exe', '/usr/bin/vim'"
+                : entryForm.pattern_type === 'domain'
+                  ? "e.g., 'youtube.com', 'facebook.com'"
+                  : entryForm.pattern_type === 'wildcard'
+                    ? "e.g., '*.example.com', '*social*'"
+                    : "e.g., 'https://example.com/path'"
             }
           />
           <FormControl fullWidth sx={{ mb: 2 }}>
@@ -718,9 +735,14 @@ function ListsPage() {
               label="Pattern Type"
               onChange={(e) => setEntryForm({ ...entryForm, pattern_type: e.target.value as PatternType })}
             >
-              <MenuItem value="exact">Exact Match</MenuItem>
-              <MenuItem value="wildcard">Wildcard</MenuItem>
-              <MenuItem value="domain">Domain</MenuItem>
+              {entryForm.entry_type === 'executable' ? [
+                <MenuItem key="exact" value="exact">Exact Name</MenuItem>,
+                <MenuItem key="wildcard" value="wildcard">Name Pattern</MenuItem>
+              ] : [
+                <MenuItem key="exact" value="exact">Exact Match</MenuItem>,
+                <MenuItem key="wildcard" value="wildcard">Wildcard</MenuItem>,
+                <MenuItem key="domain" value="domain">Domain</MenuItem>
+              ]}
             </Select>
           </FormControl>
           <TextField

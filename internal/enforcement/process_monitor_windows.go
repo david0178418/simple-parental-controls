@@ -25,8 +25,14 @@ type PROCESSENTRY32 struct {
 }
 
 const (
-	TH32CS_SNAPPROCESS   = 0x00000002
-	INVALID_HANDLE_VALUE = ^uintptr(0)
+	TH32CS_SNAPPROCESS         = 0x00000002
+	INVALID_HANDLE_VALUE       = ^uintptr(0)
+	PROCESS_TERMINATE          = 0x0001
+	PROCESS_QUERY_INFORMATION  = 0x0400
+	PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+	STILL_ACTIVE               = 259
+	WAIT_TIMEOUT               = 0x00000102
+	INFINITE                   = 0xFFFFFFFF
 )
 
 var (
@@ -37,6 +43,9 @@ var (
 	closeHandle               = kernel32.NewProc("CloseHandle")
 	openProcess               = kernel32.NewProc("OpenProcess")
 	queryFullProcessImageName = kernel32.NewProc("QueryFullProcessImageNameW")
+	terminateProcess          = kernel32.NewProc("TerminateProcess")
+	getExitCodeProcess        = kernel32.NewProc("GetExitCodeProcess")
+	waitForSingleObject       = kernel32.NewProc("WaitForSingleObject")
 )
 
 // WindowsProcessMonitor implements process monitoring for Windows
@@ -208,6 +217,127 @@ func (wpm *WindowsProcessMonitor) getProcessPath(pid uint32) (string, error) {
 	}
 
 	return syscall.UTF16ToString(pathBuffer[:pathSize]), nil
+}
+
+// IsProcessRunning checks if a process with the given PID is running on Windows
+func (wpm *WindowsProcessMonitor) IsProcessRunning(ctx context.Context, pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+
+	handle, _, _ := openProcess.Call(
+		PROCESS_QUERY_INFORMATION,
+		0, // bInheritHandle
+		uintptr(pid),
+	)
+	if handle == 0 {
+		return false
+	}
+	defer wpm.closeHandle(handle)
+
+	var exitCode uint32
+	ret, _, _ := getExitCodeProcess.Call(handle, uintptr(unsafe.Pointer(&exitCode)))
+	if ret == 0 {
+		return false
+	}
+
+	return exitCode == STILL_ACTIVE
+}
+
+// KillProcess terminates a process by PID on Windows
+func (wpm *WindowsProcessMonitor) KillProcess(ctx context.Context, pid int, graceful bool) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid PID: %d", pid)
+	}
+
+	// Get process info for safety checks
+	process, err := wpm.GetProcess(ctx, pid)
+	if err != nil {
+		return fmt.Errorf("failed to get process info: %w", err)
+	}
+
+	// Safety checks
+	if IsSystemProcess(pid) {
+		return fmt.Errorf("refusing to kill system process with PID %d", pid)
+	}
+
+	if IsCriticalProcess(process.Name) {
+		return fmt.Errorf("refusing to kill critical process: %s", process.Name)
+	}
+
+	// Open process handle with terminate permission
+	handle, _, err := openProcess.Call(
+		PROCESS_TERMINATE|PROCESS_QUERY_INFORMATION,
+		0, // bInheritHandle
+		uintptr(pid),
+	)
+	if handle == 0 {
+		return fmt.Errorf("failed to open process %d: %v", pid, err)
+	}
+	defer wpm.closeHandle(handle)
+
+	if graceful {
+		// On Windows, we don't have direct SIGTERM equivalent for arbitrary processes
+		// We'll use a shorter timeout and then force terminate
+		// First, check if the process is still active
+		if !wpm.IsProcessRunning(ctx, pid) {
+			return nil
+		}
+
+		// Wait a bit for potential graceful shutdown (some apps handle WM_CLOSE, etc.)
+		time.Sleep(2 * time.Second)
+
+		// Check again if process terminated gracefully
+		if !wpm.IsProcessRunning(ctx, pid) {
+			return nil
+		}
+	}
+
+	// Terminate the process
+	ret, _, err := terminateProcess.Call(handle, 1) // Exit code 1
+	if ret == 0 {
+		return fmt.Errorf("failed to terminate process %d: %v", pid, err)
+	}
+
+	return nil
+}
+
+// KillProcessByName terminates all processes matching a name pattern on Windows
+func (wpm *WindowsProcessMonitor) KillProcessByName(ctx context.Context, namePattern string, graceful bool) error {
+	processes, err := wpm.GetProcesses(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get process list: %w", err)
+	}
+
+	var killedCount int
+	var errors []error
+
+	for _, process := range processes {
+		// Check if process name matches pattern
+		matched, err := filepath.Match(namePattern, process.Name)
+		if err != nil {
+			errors = append(errors, fmt.Errorf("invalid pattern %s: %w", namePattern, err))
+			continue
+		}
+
+		if matched {
+			if err := wpm.KillProcess(ctx, process.PID, graceful); err != nil {
+				errors = append(errors, fmt.Errorf("failed to kill process %s (PID %d): %w", process.Name, process.PID, err))
+			} else {
+				killedCount++
+			}
+		}
+	}
+
+	if killedCount == 0 && len(errors) == 0 {
+		return fmt.Errorf("no processes found matching pattern: %s", namePattern)
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("killed %d processes, but encountered %d errors: %v", killedCount, len(errors), errors)
+	}
+
+	return nil
 }
 
 // Platform-specific factory function for Windows

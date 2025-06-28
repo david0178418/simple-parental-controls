@@ -287,6 +287,68 @@ func (ee *EnforcementEngine) ClearAllRules() error {
 	return nil
 }
 
+// GetProcesses returns all currently running processes
+func (ee *EnforcementEngine) GetProcesses(ctx context.Context) ([]*ProcessInfo, error) {
+	if ee.processMonitor == nil {
+		return nil, fmt.Errorf("process monitor not available")
+	}
+	return ee.processMonitor.GetProcesses(ctx)
+}
+
+// GetProcess returns information about a specific process
+func (ee *EnforcementEngine) GetProcess(ctx context.Context, pid int) (*ProcessInfo, error) {
+	if ee.processMonitor == nil {
+		return nil, fmt.Errorf("process monitor not available")
+	}
+	return ee.processMonitor.GetProcess(ctx, pid)
+}
+
+// KillProcess terminates a process by PID
+func (ee *EnforcementEngine) KillProcess(ctx context.Context, pid int, graceful bool) error {
+	if ee.processMonitor == nil {
+		return fmt.Errorf("process monitor not available")
+	}
+	
+	ee.logger.Info("Terminating process", 
+		logging.Int("pid", pid), 
+		logging.Bool("graceful", graceful))
+	
+	if err := ee.processMonitor.KillProcess(ctx, pid, graceful); err != nil {
+		ee.incrementErrorCount(fmt.Errorf("failed to kill process: %w", err))
+		return err
+	}
+	
+	ee.logger.Info("Process terminated successfully", logging.Int("pid", pid))
+	return nil
+}
+
+// KillProcessByName terminates all processes matching a name pattern
+func (ee *EnforcementEngine) KillProcessByName(ctx context.Context, namePattern string, graceful bool) error {
+	if ee.processMonitor == nil {
+		return fmt.Errorf("process monitor not available")
+	}
+	
+	ee.logger.Info("Terminating processes by name", 
+		logging.String("pattern", namePattern), 
+		logging.Bool("graceful", graceful))
+	
+	if err := ee.processMonitor.KillProcessByName(ctx, namePattern, graceful); err != nil {
+		ee.incrementErrorCount(fmt.Errorf("failed to kill processes by name: %w", err))
+		return err
+	}
+	
+	ee.logger.Info("Processes terminated successfully", logging.String("pattern", namePattern))
+	return nil
+}
+
+// IsProcessRunning checks if a process is currently running
+func (ee *EnforcementEngine) IsProcessRunning(ctx context.Context, pid int) bool {
+	if ee.processMonitor == nil {
+		return false
+	}
+	return ee.processMonitor.IsProcessRunning(ctx, pid)
+}
+
 // EvaluateNetworkRequest evaluates a network request for enforcement
 func (ee *EnforcementEngine) EvaluateNetworkRequest(ctx context.Context, url string, processInfo *ProcessInfo) (*FilterDecision, error) {
 	// This function is now a stub, as DNS blocking handles this implicitly.

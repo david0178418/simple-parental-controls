@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -37,6 +38,15 @@ type ProcessMonitor interface {
 
 	// Subscribe to process events (start/stop)
 	Subscribe() <-chan ProcessEvent
+
+	// KillProcess terminates a process by PID with graceful shutdown
+	KillProcess(ctx context.Context, pid int, graceful bool) error
+
+	// KillProcessByName terminates all processes matching a name pattern
+	KillProcessByName(ctx context.Context, namePattern string, graceful bool) error
+
+	// IsProcessRunning checks if a process with the given PID is running
+	IsProcessRunning(ctx context.Context, pid int) bool
 }
 
 // ProcessEvent represents a process lifecycle event
@@ -53,6 +63,26 @@ const (
 	ProcessStarted ProcessEventType = "started"
 	ProcessStopped ProcessEventType = "stopped"
 )
+
+// Critical processes that should never be terminated
+var CriticalProcesses = map[string]bool{
+	"systemd":     true,
+	"kernel":      true,
+	"init":        true,
+	"kthreadd":    true,
+	"migration":   true,
+	"rcu_":        true, // RCU processes
+	"watchdog":    true,
+	"sshd":        true,
+	"NetworkManager": true,
+	"dbus":        true,
+	"explorer.exe": true, // Windows
+	"winlogon.exe": true, // Windows
+	"csrss.exe":   true, // Windows
+	"smss.exe":    true, // Windows
+	"services.exe": true, // Windows
+	"lsass.exe":   true, // Windows
+}
 
 // ProcessIdentifier handles process identification and matching
 type ProcessIdentifier struct {
@@ -134,6 +164,36 @@ func (pi *ProcessIdentifier) matchProcess(process *ProcessInfo, signature *Proce
 		}
 	}
 	return false
+}
+
+// IsCriticalProcess checks if a process should be protected from termination
+func IsCriticalProcess(processName string) bool {
+	// Check exact matches first
+	if CriticalProcesses[processName] {
+		return true
+	}
+	
+	// Check for partial matches (e.g., rcu_ processes)
+	for critical := range CriticalProcesses {
+		if strings.Contains(critical, "_") && strings.HasPrefix(processName, strings.TrimSuffix(critical, "_")) {
+			return true
+		}
+	}
+	
+	// Additional safety checks
+	if processName == "" {
+		return true // Don't kill processes we can't identify
+	}
+	
+	// Protect system processes (PID < 100 on Linux, similar concept on Windows)
+	return false
+}
+
+// IsSystemProcess checks if a process is a system process based on PID
+func IsSystemProcess(pid int) bool {
+	// On Linux, PIDs 1-100 are typically reserved for system processes
+	// On Windows, similar concept applies but with different ranges
+	return pid > 0 && pid <= 100
 }
 
 // BaseProcessMonitor provides common functionality for process monitoring
@@ -256,6 +316,24 @@ func (bpm *BaseProcessMonitor) Stop() error {
 	bpm.subscribers = bpm.subscribers[:0]
 
 	return nil
+}
+
+// IsProcessRunning checks if a process with the given PID is running (base implementation)
+func (bpm *BaseProcessMonitor) IsProcessRunning(ctx context.Context, pid int) bool {
+	// This is a base implementation that will be overridden by platform-specific monitors
+	return false
+}
+
+// KillProcess terminates a process by PID (base implementation)
+func (bpm *BaseProcessMonitor) KillProcess(ctx context.Context, pid int, graceful bool) error {
+	// This is a base implementation that should be overridden by platform-specific monitors
+	return fmt.Errorf("KillProcess not implemented in base monitor")
+}
+
+// KillProcessByName terminates processes by name pattern (base implementation)
+func (bpm *BaseProcessMonitor) KillProcessByName(ctx context.Context, namePattern string, graceful bool) error {
+	// This is a base implementation that should be overridden by platform-specific monitors
+	return fmt.Errorf("KillProcessByName not implemented in base monitor")
 }
 
 // Linux-specific implementation
@@ -434,6 +512,106 @@ func (lpm *LinuxProcessMonitor) monitorLoop(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// IsProcessRunning checks if a process with the given PID is running on Linux
+func (lpm *LinuxProcessMonitor) IsProcessRunning(ctx context.Context, pid int) bool {
+	procPath := filepath.Join("/proc", strconv.Itoa(pid))
+	_, err := os.Stat(procPath)
+	return err == nil
+}
+
+// KillProcess terminates a process by PID on Linux
+func (lpm *LinuxProcessMonitor) KillProcess(ctx context.Context, pid int, graceful bool) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid PID: %d", pid)
+	}
+
+	// Get process info for safety checks
+	process, err := lpm.GetProcess(ctx, pid)
+	if err != nil {
+		return fmt.Errorf("failed to get process info: %w", err)
+	}
+
+	// Safety checks
+	if IsSystemProcess(pid) {
+		return fmt.Errorf("refusing to kill system process with PID %d", pid)
+	}
+
+	if IsCriticalProcess(process.Name) {
+		return fmt.Errorf("refusing to kill critical process: %s", process.Name)
+	}
+
+	// Find the process
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("failed to find process %d: %w", pid, err)
+	}
+
+	if graceful {
+		// Try graceful shutdown first (SIGTERM)
+		if err := proc.Signal(syscall.SIGTERM); err != nil {
+			return fmt.Errorf("failed to send SIGTERM to process %d: %w", pid, err)
+		}
+
+		// Wait up to 5 seconds for graceful shutdown
+		for i := 0; i < 50; i++ {
+			if !lpm.IsProcessRunning(ctx, pid) {
+				return nil
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		// If still running, force kill
+		if err := proc.Signal(syscall.SIGKILL); err != nil {
+			return fmt.Errorf("failed to send SIGKILL to process %d: %w", pid, err)
+		}
+	} else {
+		// Force kill immediately
+		if err := proc.Signal(syscall.SIGKILL); err != nil {
+			return fmt.Errorf("failed to send SIGKILL to process %d: %w", pid, err)
+		}
+	}
+
+	return nil
+}
+
+// KillProcessByName terminates all processes matching a name pattern on Linux
+func (lpm *LinuxProcessMonitor) KillProcessByName(ctx context.Context, namePattern string, graceful bool) error {
+	processes, err := lpm.GetProcesses(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get process list: %w", err)
+	}
+
+	var killedCount int
+	var errors []error
+
+	for _, process := range processes {
+		// Check if process name matches pattern
+		matched, err := filepath.Match(namePattern, process.Name)
+		if err != nil {
+			errors = append(errors, fmt.Errorf("invalid pattern %s: %w", namePattern, err))
+			continue
+		}
+
+		if matched {
+			if err := lpm.KillProcess(ctx, process.PID, graceful); err != nil {
+				errors = append(errors, fmt.Errorf("failed to kill process %s (PID %d): %w", process.Name, process.PID, err))
+			} else {
+				killedCount++
+			}
+		}
+	}
+
+	if killedCount == 0 && len(errors) == 0 {
+		return fmt.Errorf("no processes found matching pattern: %s", namePattern)
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("killed %d processes, but encountered %d errors: %v", killedCount, len(errors), errors)
+	}
+
+	return nil
 }
 
 // NewProcessMonitor creates a platform-specific process monitor

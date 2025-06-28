@@ -6,3 +6,4 @@ certs/
 data/
 bin
 *.log
+CLAUDE.md

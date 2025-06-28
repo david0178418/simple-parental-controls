@@ -223,7 +223,7 @@ function ListsPage() {
       list_id: selectedList.id,
       entry_type: 'executable',
       pattern: '',
-      pattern_type: 'exact',
+      pattern_type: 'exact', // Always exact for executables
       description: '',
       enabled: true,
     });
@@ -239,7 +239,7 @@ function ListsPage() {
       list_id: entry.list_id,
       entry_type: entry.entry_type,
       pattern: entry.pattern,
-      pattern_type: entry.pattern_type,
+      pattern_type: entry.entry_type === 'executable' ? 'exact' : entry.pattern_type, // Force exact for executables
       description: entry.description,
       enabled: entry.enabled,
     });
@@ -722,14 +722,12 @@ function ListsPage() {
               label="Entry Type"
               onChange={(e) => {
                 const newEntryType = e.target.value as EntryType;
-                // Auto-reset pattern_type if switching to executable and current type is 'domain'
-                const newPatternType = newEntryType === 'executable' && entryForm.pattern_type === 'domain' 
-                  ? 'exact' 
-                  : entryForm.pattern_type;
+                // Set appropriate default pattern type based on entry type
+                const defaultPatternType = newEntryType === 'executable' ? 'exact' : 'exact';
                 setEntryForm({ 
                   ...entryForm, 
                   entry_type: newEntryType,
-                  pattern_type: newPatternType,
+                  pattern_type: defaultPatternType,
                   pattern: '' // Clear pattern when switching types
                 });
                 setShowCustomInput(false);
@@ -788,6 +786,7 @@ function ListsPage() {
                         setEntryForm({ 
                           ...entryForm, 
                           pattern: newValue.executable,
+                          pattern_type: 'exact', // Always exact for dropdown selections
                           description: entryForm.description || newValue.description || ''
                         });
                       }
@@ -826,7 +825,10 @@ function ListsPage() {
                   <Button
                     variant="text"
                     size="small"
-                    onClick={() => setShowCustomInput(true)}
+                    onClick={() => {
+                      setShowCustomInput(true);
+                      setEntryForm({ ...entryForm, pattern: '', pattern_type: 'exact' }); // Always exact for executables
+                    }}
                     sx={{ mt: 1 }}
                   >
                     Can't find your application? Enter manually
@@ -851,7 +853,10 @@ function ListsPage() {
                     <Button
                       variant="text"
                       size="small"
-                      onClick={() => setShowCustomInput(false)}
+                      onClick={() => {
+                        setShowCustomInput(false);
+                        setEntryForm({ ...entryForm, pattern: '', pattern_type: 'exact' }); // Always exact for executables
+                      }}
                       sx={{ mt: 1 }}
                     >
                       Choose from discovered applications
@@ -878,27 +883,20 @@ function ListsPage() {
               }
             />
           )}
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Pattern Type</InputLabel>
-            <Select
-              value={entryForm.pattern_type}
-              label="Pattern Type"
-              onChange={(e) => setEntryForm({ ...entryForm, pattern_type: e.target.value as PatternType })}
-            >
-              {entryForm.entry_type === 'executable' ? (
-                showCustomInput ? [
-                  <MenuItem key="exact" value="exact">Exact Name</MenuItem>,
-                  <MenuItem key="wildcard" value="wildcard">Name Pattern</MenuItem>
-                ] : [
-                  <MenuItem key="exact" value="exact">Exact Name</MenuItem>
-                ]
-              ) : [
-                <MenuItem key="exact" value="exact">Exact Match</MenuItem>,
-                <MenuItem key="wildcard" value="wildcard">Wildcard</MenuItem>,
-                <MenuItem key="domain" value="domain">Domain</MenuItem>
-              ]}
-            </Select>
-          </FormControl>
+          {entryForm.entry_type === 'url' && (
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Pattern Type</InputLabel>
+              <Select
+                value={entryForm.pattern_type}
+                label="Pattern Type"
+                onChange={(e) => setEntryForm({ ...entryForm, pattern_type: e.target.value as PatternType })}
+              >
+                <MenuItem value="exact">Exact Match</MenuItem>
+                <MenuItem value="wildcard">Wildcard</MenuItem>
+                <MenuItem value="domain">Domain</MenuItem>
+              </Select>
+            </FormControl>
+          )}
           <TextField
             margin="dense"
             label="Description"

@@ -101,11 +101,11 @@ func NewEnforcementEngine(config *EnforcementConfig, logger logging.Logger, audi
 
 	dnsBlockerConfig := &DNSBlockerConfig{
 		ListenAddr:    ":53",
-		BlockIPv4:     "0.0.0.0",
+		BlockIPv4:     "0.0.0.0", 
 		BlockIPv6:     "::",
 		UpstreamDNS:   []string{"8.8.8.8:53", "1.1.1.1:53"},
 		CacheTTL:      300 * time.Second,
-		EnableLogging: true,
+		EnableLogging: config.LogAllActivity,
 	}
 	dnsBlocker, err := NewDNSBlocker(dnsBlockerConfig, logger)
 	if err != nil {

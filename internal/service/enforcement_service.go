@@ -134,17 +134,9 @@ func (es *EnforcementService) SyncRules(ctx context.Context) error {
 		return fmt.Errorf("failed to get desired rules: %w", err)
 	}
 	
-	es.logger.Info("Rule sync status",
+	es.logger.Debug("Rule sync status",
 		logging.Int("current_rules_count", len(currentRules)),
 		logging.Int("desired_rules_count", len(desiredRules)))
-	
-	// Debug log current and desired rule patterns
-	for pattern := range currentRules {
-		es.logger.Debug("Current rule pattern", logging.String("pattern", pattern))
-	}
-	for pattern := range desiredRules {
-		es.logger.Debug("Desired rule pattern", logging.String("pattern", pattern))
-	}
 	
 	var rulesAdded, rulesRemoved, rulesSkipped int
 	
@@ -173,7 +165,7 @@ func (es *EnforcementService) SyncRules(ctx context.Context) error {
 				continue
 			}
 			rulesRemoved++
-			es.logger.Debug("Removed rule", 
+			es.logger.Info("Removed network rule", 
 				logging.String("pattern", pattern),
 				logging.String("rule_name", rule.Name))
 		}
@@ -234,14 +226,8 @@ func (es *EnforcementService) getDesiredRulesFromDatabase(ctx context.Context) (
 
 // RefreshRules forces an immediate rule refresh
 func (es *EnforcementService) RefreshRules(ctx context.Context) error {
-	es.logger.Info("Forcing immediate rule refresh - START")
-	err := es.SyncRules(ctx)
-	if err != nil {
-		es.logger.Error("Rule refresh failed", logging.Err(err))
-	} else {
-		es.logger.Info("Rule refresh completed successfully")
-	}
-	return err
+	es.logger.Debug("Forcing immediate rule refresh")
+	return es.SyncRules(ctx)
 }
 
 // GetStats returns enforcement statistics
@@ -326,7 +312,9 @@ func (es *EnforcementService) ruleSyncLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := es.SyncRules(ctx); err != nil {
-				es.logger.Error("Periodic rule sync failed", logging.Err(err))
+				es.logger.Error("Periodic rule synchronization failed", 
+					logging.Err(err),
+					logging.String("sync_type", "periodic"))
 			}
 		}
 	}

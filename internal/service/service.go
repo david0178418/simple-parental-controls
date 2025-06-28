@@ -316,9 +316,6 @@ func (s *Service) initializeRepositories() error {
 
 // initializeEnforcementService creates and starts the enforcement service
 func (s *Service) initializeEnforcementService() error {
-	logging.Info("Checking enforcement configuration", 
-		logging.Bool("enforcement_enabled", s.config.EnforcementEnabled))
-		
 	if !s.config.EnforcementEnabled {
 		logging.Info("Enforcement service disabled in configuration")
 		return nil

@@ -163,7 +163,6 @@ func (a *App) Start(ctx context.Context) error {
 	
 	// Set enforcement service if available
 	if enforcementService := a.service.GetEnforcementService(); enforcementService != nil {
-		logging.Info("Setting enforcement service on API server")
 		apiServer.SetEnforcementService(enforcementService)
 	} else {
 		logging.Warn("No enforcement service available - API server will not have rule refresh capability")

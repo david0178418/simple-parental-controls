@@ -574,9 +574,10 @@ func (m *mockUser) HasAdminRole() bool  { return true }
 // refreshRulesAsync triggers an asynchronous rule refresh
 func (api *APIServer) refreshRulesAsync(ctx context.Context) {
 	if api.enforcementService != nil {
-		logging.Info("Triggering rule refresh")
 		go func() {
-			if err := api.enforcementService.RefreshRules(ctx); err != nil {
+			// Use background context to avoid cancellation when request completes
+			backgroundCtx := context.Background()
+			if err := api.enforcementService.RefreshRules(backgroundCtx); err != nil {
 				logging.Error("Failed to refresh rules after API change", logging.Err(err))
 			} else {
 				logging.Debug("Rules refreshed after API change")

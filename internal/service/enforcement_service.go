@@ -55,7 +55,7 @@ func NewEnforcementService(
 		logger:              logger,
 		config:              config,
 		notificationService: notificationService,
-		syncInterval:        30 * time.Second, // Sync rules every 30 seconds
+		syncInterval:        10 * time.Second, // Sync rules every 10 seconds
 		stopCh:              make(chan struct{}),
 	}
 }

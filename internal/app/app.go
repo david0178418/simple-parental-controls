@@ -32,6 +32,9 @@ func DefaultConfig() Config {
 	serviceConfig.EnforcementConfig = convertEnforcementConfig(defaultConfig.Enforcement)
 	serviceConfig.EnforcementEnabled = defaultConfig.Enforcement.Enabled
 
+	// Convert notification config from main config to service config
+	serviceConfig.NotificationConfig = convertNotificationConfig(defaultConfig.Notifications)
+
 	return Config{
 		Service:  serviceConfig,
 		Web:      defaultConfig.Web,
@@ -376,5 +379,22 @@ func convertEnforcementConfig(src config.EnforcementConfig) enforcement.Enforcem
 		LogAllActivity:         src.LogAllActivity,
 		EnableEmergencyMode:    src.EnableEmergencyMode,
 		EmergencyWhitelist:     src.EmergencyWhitelist,
+	}
+}
+
+// convertNotificationConfig converts config.NotificationConfig to service.NotificationConfig
+func convertNotificationConfig(src config.NotificationConfig) service.NotificationConfig {
+	return service.NotificationConfig{
+		Enabled:                   src.Enabled,
+		AppName:                   src.AppName,
+		AppIcon:                   src.AppIcon,
+		MaxNotificationsPerMinute: src.MaxNotificationsPerMinute,
+		CooldownPeriod:            src.CooldownPeriod,
+		EnableAppBlocking:         src.EnableAppBlocking,
+		EnableWebBlocking:         src.EnableWebBlocking,
+		EnableTimeLimit:           src.EnableTimeLimit,
+		EnableSystemAlerts:        src.EnableSystemAlerts,
+		ShowProcessDetails:        src.ShowProcessDetails,
+		NotificationTimeout:       src.NotificationTimeout,
 	}
 }

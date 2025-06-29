@@ -35,6 +35,9 @@ type Config struct {
 
 	// Enforcement configuration
 	Enforcement EnforcementConfig `yaml:"enforcement" json:"enforcement"`
+
+	// Notification configuration
+	Notifications NotificationConfig `yaml:"notifications" json:"notifications"`
 }
 
 // ServiceConfig holds service-specific settings
@@ -207,6 +210,30 @@ type EnforcementConfig struct {
 	DNSEnableLogging   bool          `yaml:"dns_enable_logging" json:"dns_enable_logging"`
 }
 
+// NotificationConfig holds notification settings
+type NotificationConfig struct {
+	// Enabled indicates if notifications are enabled
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// App branding
+	AppName string `yaml:"app_name" json:"app_name"`
+	AppIcon string `yaml:"app_icon" json:"app_icon"`
+
+	// Rate limiting
+	MaxNotificationsPerMinute int           `yaml:"max_notifications_per_minute" json:"max_notifications_per_minute"`
+	CooldownPeriod            time.Duration `yaml:"cooldown_period" json:"cooldown_period"`
+
+	// Notification types to enable
+	EnableAppBlocking  bool `yaml:"enable_app_blocking" json:"enable_app_blocking"`
+	EnableWebBlocking  bool `yaml:"enable_web_blocking" json:"enable_web_blocking"`
+	EnableTimeLimit    bool `yaml:"enable_time_limit" json:"enable_time_limit"`
+	EnableSystemAlerts bool `yaml:"enable_system_alerts" json:"enable_system_alerts"`
+
+	// Notification behavior
+	ShowProcessDetails  bool          `yaml:"show_process_details" json:"show_process_details"`
+	NotificationTimeout time.Duration `yaml:"notification_timeout" json:"notification_timeout"`
+}
+
 // Default returns a configuration with sensible defaults
 func Default() *Config {
 	return &Config{
@@ -281,6 +308,19 @@ func Default() *Config {
 			DNSUpstreamServers:     []string{"8.8.8.8", "2001:4860:4860::8888"},
 			DNSCacheTTL:            300 * time.Second,
 			DNSEnableLogging:       true,
+		},
+		Notifications: NotificationConfig{
+			Enabled:                   true,
+			AppName:                   "Parental Control",
+			AppIcon:                   "",
+			MaxNotificationsPerMinute: 10,
+			CooldownPeriod:            30 * time.Second,
+			EnableAppBlocking:         true,
+			EnableWebBlocking:         true,
+			EnableTimeLimit:           true,
+			EnableSystemAlerts:        false,
+			ShowProcessDetails:        true,
+			NotificationTimeout:       5 * time.Second,
 		},
 	}
 }
@@ -578,6 +618,59 @@ func applyEnvironmentOverrides(config *Config) error {
 		}
 	}
 
+	// Notification configuration
+	if val := os.Getenv("PC_NOTIFICATIONS_ENABLED"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Notifications.Enabled = enabled
+		}
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_APP_NAME"); val != "" {
+		config.Notifications.AppName = val
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_APP_ICON"); val != "" {
+		config.Notifications.AppIcon = val
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_MAX_PER_MINUTE"); val != "" {
+		if maxPerMinute, err := strconv.Atoi(val); err == nil {
+			config.Notifications.MaxNotificationsPerMinute = maxPerMinute
+		}
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_COOLDOWN_PERIOD"); val != "" {
+		if duration, err := time.ParseDuration(val); err == nil {
+			config.Notifications.CooldownPeriod = duration
+		}
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_ENABLE_APP_BLOCKING"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Notifications.EnableAppBlocking = enabled
+		}
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_ENABLE_WEB_BLOCKING"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Notifications.EnableWebBlocking = enabled
+		}
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_ENABLE_TIME_LIMIT"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Notifications.EnableTimeLimit = enabled
+		}
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_ENABLE_SYSTEM_ALERTS"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Notifications.EnableSystemAlerts = enabled
+		}
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_SHOW_PROCESS_DETAILS"); val != "" {
+		if enabled, err := strconv.ParseBool(val); err == nil {
+			config.Notifications.ShowProcessDetails = enabled
+		}
+	}
+	if val := os.Getenv("PC_NOTIFICATIONS_TIMEOUT"); val != "" {
+		if duration, err := time.ParseDuration(val); err == nil {
+			config.Notifications.NotificationTimeout = duration
+		}
+	}
+
 	return nil
 }
 
@@ -759,6 +852,22 @@ func (c *Config) Validate() error {
 		}
 		if c.Enforcement.EnableEmergencyMode && c.Enforcement.DNSListenAddr == "" {
 			errors = append(errors, "enforcement.dns_listen_addr is required when emergency mode is enabled")
+		}
+	}
+
+	// Validate notification configuration
+	if c.Notifications.Enabled {
+		if c.Notifications.MaxNotificationsPerMinute <= 0 {
+			errors = append(errors, "notifications.max_notifications_per_minute must be positive")
+		}
+		if c.Notifications.CooldownPeriod < 0 {
+			errors = append(errors, "notifications.cooldown_period cannot be negative")
+		}
+		if c.Notifications.NotificationTimeout < 0 {
+			errors = append(errors, "notifications.notification_timeout cannot be negative")
+		}
+		if c.Notifications.AppName == "" {
+			errors = append(errors, "notifications.app_name cannot be empty when notifications are enabled")
 		}
 	}
 

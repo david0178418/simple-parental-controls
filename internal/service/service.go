@@ -65,6 +65,8 @@ type Config struct {
 	EnforcementConfig enforcement.EnforcementConfig
 	// EnforcementEnabled indicates if enforcement should be started
 	EnforcementEnabled bool
+	// NotificationConfig for notification service
+	NotificationConfig NotificationConfig
 }
 
 // DefaultConfig returns a service configuration with sensible defaults
@@ -95,6 +97,7 @@ type Service struct {
 	stateMu            sync.RWMutex
 	db                 *database.DB
 	repos              *models.RepositoryManager
+	notificationService *NotificationService
 	enforcementService *EnforcementService
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -323,10 +326,16 @@ func (s *Service) initializeEnforcementService() error {
 
 	logging.Info("Initializing enforcement service")
 
+	// Initialize notification service first
+	if err := s.initializeNotificationService(); err != nil {
+		return fmt.Errorf("failed to initialize notification service: %w", err)
+	}
+
 	s.enforcementService = NewEnforcementService(
 		s.repos,
 		logging.NewDefault(),
 		s.config.EnforcementConfig,
+		s.notificationService,
 	)
 
 	if err := s.enforcementService.Start(s.ctx); err != nil {
@@ -334,6 +343,42 @@ func (s *Service) initializeEnforcementService() error {
 	}
 
 	logging.Info("Enforcement service initialized successfully")
+	return nil
+}
+
+// initializeNotificationService initializes the notification service
+func (s *Service) initializeNotificationService() error {
+	logging.Info("Initializing notification service")
+
+	// Convert service config to notification config
+	notificationConfig := &NotificationConfig{
+		Enabled:                   s.config.NotificationConfig.Enabled,
+		AppName:                   s.config.NotificationConfig.AppName,
+		AppIcon:                   s.config.NotificationConfig.AppIcon,
+		MaxNotificationsPerMinute: s.config.NotificationConfig.MaxNotificationsPerMinute,
+		CooldownPeriod:            s.config.NotificationConfig.CooldownPeriod,
+		EnableAppBlocking:         s.config.NotificationConfig.EnableAppBlocking,
+		EnableWebBlocking:         s.config.NotificationConfig.EnableWebBlocking,
+		EnableTimeLimit:           s.config.NotificationConfig.EnableTimeLimit,
+		EnableSystemAlerts:        s.config.NotificationConfig.EnableSystemAlerts,
+		ShowProcessDetails:        s.config.NotificationConfig.ShowProcessDetails,
+		NotificationTimeout:       s.config.NotificationConfig.NotificationTimeout,
+	}
+
+	// Create audit service for notifications
+	auditConfig := AuditConfig{
+		BufferSize:      1000,
+		BatchSize:       5,
+		BatchTimeout:    3 * time.Second,
+		FlushInterval:   15 * time.Second,
+		EnableBuffering: true,
+	}
+	auditService := NewAuditService(s.repos, logging.NewDefault(), auditConfig)
+
+	s.notificationService = NewNotificationServiceWithAudit(notificationConfig, logging.NewDefault(), auditService)
+
+	logging.Info("Notification service initialized successfully",
+		logging.Bool("enabled", notificationConfig.Enabled))
 	return nil
 }
 

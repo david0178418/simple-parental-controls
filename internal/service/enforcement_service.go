@@ -19,6 +19,9 @@ type EnforcementService struct {
 	logger logging.Logger
 	config enforcement.EnforcementConfig
 
+	// Notification service
+	notificationService *NotificationService
+
 	// State management
 	running   bool
 	runningMu sync.RWMutex
@@ -34,6 +37,7 @@ func NewEnforcementService(
 	repos *models.RepositoryManager,
 	logger logging.Logger,
 	config enforcement.EnforcementConfig,
+	notificationService *NotificationService,
 ) *EnforcementService {
 	auditConfig := AuditConfig{
 		BufferSize:      1000,
@@ -46,12 +50,13 @@ func NewEnforcementService(
 	engine := enforcement.NewEnforcementEngine(&config, logger, auditService)
 
 	return &EnforcementService{
-		engine:       engine,
-		repos:        repos,
-		logger:       logger,
-		config:       config,
-		syncInterval: 30 * time.Second, // Sync rules every 30 seconds
-		stopCh:       make(chan struct{}),
+		engine:              engine,
+		repos:               repos,
+		logger:              logger,
+		config:              config,
+		notificationService: notificationService,
+		syncInterval:        30 * time.Second, // Sync rules every 30 seconds
+		stopCh:              make(chan struct{}),
 	}
 }
 
@@ -257,7 +262,23 @@ func (es *EnforcementService) GetSystemInfo() map[string]interface{} {
 		info["engine"] = engineInfo
 	}
 
+	if es.notificationService != nil {
+		info["notifications_enabled"] = es.notificationService.IsEnabled()
+		info["notification_stats"] = es.notificationService.GetStats()
+	}
+
 	return info
+}
+
+// GetNotificationService returns the notification service
+func (es *EnforcementService) GetNotificationService() *NotificationService {
+	return es.notificationService
+}
+
+// SetNotificationService updates the notification service
+func (es *EnforcementService) SetNotificationService(notificationService *NotificationService) {
+	es.notificationService = notificationService
+	es.logger.Info("Notification service updated")
 }
 
 // GetProcessMonitor returns the process monitor from the enforcement engine
@@ -425,6 +446,15 @@ func (es *EnforcementService) enforceExecutableRules(ctx context.Context) error 
 					logging.String("process", process.Name),
 					logging.Int("pid", process.PID),
 					logging.String("pattern", rule.Pattern))
+
+				// Send notification about blocked app
+				if es.notificationService != nil {
+					if err := es.notificationService.NotifyAppBlocked(ctx, process.Name, process.PID, rule.Pattern); err != nil {
+						es.logger.Error("Failed to send app blocked notification",
+							logging.Err(err),
+							logging.String("process", process.Name))
+					}
+				}
 
 				// Kill the process
 				if err := es.engine.KillProcess(ctx, process.PID, true); err != nil {

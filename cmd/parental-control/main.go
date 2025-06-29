@@ -67,6 +67,7 @@ func main() {
 			HealthCheckInterval: appConfig.Service.HealthCheckInterval,
 			EnforcementConfig:   convertToServiceEnforcementConfig(appConfig.Enforcement),
 			EnforcementEnabled:  appConfig.Enforcement.Enabled,
+			NotificationConfig:  convertToServiceNotificationConfig(appConfig.Notifications),
 		},
 		Web:      appConfig.Web,
 		Security: appConfig.Security,
@@ -107,5 +108,22 @@ func convertToServiceEnforcementConfig(cfg config.EnforcementConfig) enforcement
 		LogAllActivity:         cfg.LogAllActivity,
 		EnableEmergencyMode:    cfg.EnableEmergencyMode,
 		EmergencyWhitelist:     cfg.EmergencyWhitelist,
+	}
+}
+
+// convertToServiceNotificationConfig converts config.NotificationConfig to service.NotificationConfig
+func convertToServiceNotificationConfig(cfg config.NotificationConfig) service.NotificationConfig {
+	return service.NotificationConfig{
+		Enabled:                   cfg.Enabled,
+		AppName:                   cfg.AppName,
+		AppIcon:                   cfg.AppIcon,
+		MaxNotificationsPerMinute: cfg.MaxNotificationsPerMinute,
+		CooldownPeriod:            cfg.CooldownPeriod,
+		EnableAppBlocking:         cfg.EnableAppBlocking,
+		EnableWebBlocking:         cfg.EnableWebBlocking,
+		EnableTimeLimit:           cfg.EnableTimeLimit,
+		EnableSystemAlerts:        cfg.EnableSystemAlerts,
+		ShowProcessDetails:        cfg.ShowProcessDetails,
+		NotificationTimeout:       cfg.NotificationTimeout,
 	}
 }

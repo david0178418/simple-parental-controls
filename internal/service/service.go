@@ -87,6 +87,19 @@ func DefaultConfig() Config {
 			EmergencyWhitelist:     []string{"192.168.1.1"},
 		},
 		EnforcementEnabled: true,
+		NotificationConfig: NotificationConfig{
+			Enabled:                   true,
+			AppName:                   "Parental Control",
+			AppIcon:                   "",
+			MaxNotificationsPerMinute: 10,
+			CooldownPeriod:            30 * time.Second,
+			EnableAppBlocking:         true,
+			EnableWebBlocking:         true,
+			EnableTimeLimit:           true,
+			EnableSystemAlerts:        false,
+			ShowProcessDetails:        true,
+			NotificationTimeout:       5 * time.Second,
+		},
 	}
 }
 
@@ -350,6 +363,12 @@ func (s *Service) initializeEnforcementService() error {
 func (s *Service) initializeNotificationService() error {
 	logging.Info("Initializing notification service")
 
+	// Log the source configuration
+	logging.Info("Source notification config",
+		logging.Bool("source_enabled", s.config.NotificationConfig.Enabled),
+		logging.Bool("source_app_blocking", s.config.NotificationConfig.EnableAppBlocking),
+		logging.String("source_app_name", s.config.NotificationConfig.AppName))
+
 	// Convert service config to notification config
 	notificationConfig := &NotificationConfig{
 		Enabled:                   s.config.NotificationConfig.Enabled,
@@ -364,6 +383,12 @@ func (s *Service) initializeNotificationService() error {
 		ShowProcessDetails:        s.config.NotificationConfig.ShowProcessDetails,
 		NotificationTimeout:       s.config.NotificationConfig.NotificationTimeout,
 	}
+
+	// Log the converted configuration
+	logging.Info("Converted notification config",
+		logging.Bool("enabled", notificationConfig.Enabled),
+		logging.Bool("app_blocking", notificationConfig.EnableAppBlocking),
+		logging.String("app_name", notificationConfig.AppName))
 
 	// Create audit service for notifications
 	auditConfig := AuditConfig{

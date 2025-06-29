@@ -428,6 +428,9 @@ func (es *EnforcementService) enforceExecutableRules(ctx context.Context) error 
 		return fmt.Errorf("failed to get executable rules: %w", err)
 	}
 
+	es.logger.Debug("Enforcing executable rules",
+		logging.Int("rule_count", len(executableRules)))
+
 	if len(executableRules) == 0 {
 		return nil // No executable rules to enforce
 	}
@@ -438,6 +441,10 @@ func (es *EnforcementService) enforceExecutableRules(ctx context.Context) error 
 		return fmt.Errorf("failed to get running processes: %w", err)
 	}
 
+	es.logger.Debug("Checking processes against rules",
+		logging.Int("process_count", len(processes)),
+		logging.Int("rule_count", len(executableRules)))
+
 	// Check each process against executable rules
 	for _, process := range processes {
 		for _, rule := range executableRules {
@@ -447,13 +454,18 @@ func (es *EnforcementService) enforceExecutableRules(ctx context.Context) error 
 					logging.Int("pid", process.PID),
 					logging.String("pattern", rule.Pattern))
 
-				// Send notification about blocked app
+				// Send notification about blocked app (asynchronously to avoid blocking)
 				if es.notificationService != nil {
-					if err := es.notificationService.NotifyAppBlocked(ctx, process.Name, process.PID, rule.Pattern); err != nil {
-						es.logger.Error("Failed to send app blocked notification",
-							logging.Err(err),
-							logging.String("process", process.Name))
-					}
+					go func(processName string, pid int, pattern string) {
+						if err := es.notificationService.NotifyAppBlocked(ctx, processName, pid, pattern); err != nil {
+							es.logger.Error("Failed to send app blocked notification",
+								logging.Err(err),
+								logging.String("process", processName))
+						} else {
+							es.logger.Info("App blocked notification sent successfully",
+								logging.String("process", processName))
+						}
+					}(process.Name, process.PID, rule.Pattern)
 				}
 
 				// Kill the process

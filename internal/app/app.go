@@ -28,12 +28,14 @@ func DefaultConfig() Config {
 	defaultConfig := config.Default()
 	serviceConfig := service.DefaultConfig()
 
+
 	// Convert enforcement config from main config to engine config
 	serviceConfig.EnforcementConfig = convertEnforcementConfig(defaultConfig.Enforcement)
 	serviceConfig.EnforcementEnabled = defaultConfig.Enforcement.Enabled
 
 	// Convert notification config from main config to service config
 	serviceConfig.NotificationConfig = convertNotificationConfig(defaultConfig.Notifications)
+	
 
 	return Config{
 		Service:  serviceConfig,

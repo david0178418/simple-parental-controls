@@ -3,6 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"os/user"
+	"strconv"
 	"sync"
 	"time"
 
@@ -171,7 +175,15 @@ func (ns *NotificationService) SetEnabled(enabled bool) {
 
 // NotifyAppBlocked sends a notification when an application is blocked
 func (ns *NotificationService) NotifyAppBlocked(ctx context.Context, processName string, pid int, ruleName string) error {
+	ns.logger.Info("NotifyAppBlocked called",
+		logging.String("process", processName),
+		logging.Int("pid", pid),
+		logging.String("rule", ruleName),
+		logging.Bool("enabled", ns.IsEnabled()),
+		logging.Bool("app_blocking_enabled", ns.config.EnableAppBlocking))
+
 	if !ns.IsEnabled() || !ns.config.EnableAppBlocking {
+		ns.logger.Info("App blocking notification skipped - disabled")
 		return nil
 	}
 	
@@ -195,6 +207,10 @@ func (ns *NotificationService) NotifyAppBlocked(ctx context.Context, processName
 		ProcessPID:  pid,
 		RuleName:    ruleName,
 	}
+	
+	ns.logger.Info("Calling sendNotification",
+		logging.String("title", title),
+		logging.String("message", message))
 	
 	return ns.sendNotification(ctx, data)
 }
@@ -304,7 +320,7 @@ func (ns *NotificationService) sendNotification(ctx context.Context, data *Notif
 		icon = ns.config.AppIcon
 	}
 	
-	err := beeep.Notify(data.Title, data.Message, icon)
+	err := ns.sendNotificationAsUser(data.Title, data.Message, icon)
 	if err != nil {
 		ns.incrementError(err)
 		ns.logger.Error("Failed to send notification",
@@ -482,4 +498,147 @@ func (ns *NotificationService) incrementError(err error) {
 	ns.stats.Errors++
 	ns.stats.LastError = err.Error()
 	ns.stats.LastErrorTime = time.Now()
+}
+
+// sendNotificationAsUser sends notification in user context when running as root
+func (ns *NotificationService) sendNotificationAsUser(title, message, icon string) error {
+	currentUID := os.Getuid()
+	ns.logger.Info("Attempting to send notification",
+		logging.String("title", title),
+		logging.Int("current_uid", currentUID),
+		logging.String("sudo_user", os.Getenv("SUDO_USER")))
+
+	// Skip beeep when running as root since it typically fails and hangs
+	if currentUID == 0 {
+		ns.logger.Info("Running as root, skipping beeep and using sudo notification")
+		return ns.sendNotificationViaSudo(title, message, icon)
+	}
+
+	// First try the normal method (works when not running as root)
+	ns.logger.Info("Trying beeep notification")
+	err := beeep.Notify(title, message, icon)
+	if err == nil {
+		ns.logger.Info("Notification sent via beeep successfully")
+		return nil
+	}
+
+	ns.logger.Info("Beeep notification failed", logging.Err(err))
+	return err
+}
+
+// sendNotificationViaSudo sends notification via sudo to the original user
+func (ns *NotificationService) sendNotificationViaSudo(title, message, icon string) error {
+	// Get the original user from SUDO_USER environment variable
+	sudoUser := os.Getenv("SUDO_USER")
+	ns.logger.Info("Attempting sudo notification", logging.String("sudo_user", sudoUser))
+
+	if sudoUser == "" {
+		// Try to find the first non-root user logged in
+		if u, err := ns.findLoggedInUser(); err == nil {
+			sudoUser = u.Username
+			ns.logger.Info("Found logged in user", logging.String("user", sudoUser))
+		} else {
+			ns.logger.Error("Cannot determine original user for notification", logging.Err(err))
+			return fmt.Errorf("cannot determine original user for notification")
+		}
+	}
+
+	// Get user info
+	u, err := user.Lookup(sudoUser)
+	if err != nil {
+		ns.logger.Error("Failed to lookup user", logging.String("user", sudoUser), logging.Err(err))
+		return fmt.Errorf("failed to lookup user %s: %w", sudoUser, err)
+	}
+
+	ns.logger.Info("User lookup successful",
+		logging.String("username", u.Username),
+		logging.String("home_dir", u.HomeDir),
+		logging.String("uid", u.Uid))
+
+	// Try multiple notification methods
+	methods := []struct {
+		name string
+		cmd  []string
+	}{
+		{"notify-send", []string{"notify-send", "--app-name=" + ns.config.AppName, "--urgency=normal", title, message}},
+		{"zenity", []string{"zenity", "--info", "--title=" + title, "--text=" + message, "--timeout=5"}},
+		{"xmessage", []string{"xmessage", "-center", "-timeout", "5", title + ": " + message}},
+	}
+
+	for _, method := range methods {
+		ns.logger.Info("Trying notification method", logging.String("method", method.name))
+		
+		// Set a timeout for the notification command
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		
+		args := append([]string{"-u", sudoUser}, method.cmd...)
+		cmd := exec.CommandContext(timeoutCtx, "sudo", args...)
+		
+		// Set environment for the user with X11 authorization
+		xauthFile := u.HomeDir + "/.Xauthority"
+		cmd.Env = []string{
+			"HOME=" + u.HomeDir,
+			"USER=" + u.Username,
+			"DISPLAY=:0",
+			"XDG_RUNTIME_DIR=/run/user/" + u.Uid,
+			"XAUTHORITY=" + xauthFile,
+		}
+		
+		output, err := cmd.CombinedOutput()
+		cancel()
+		
+		if err == nil {
+			ns.logger.Info("Notification sent successfully", 
+				logging.String("method", method.name),
+				logging.String("output", string(output)))
+			return nil
+		}
+		
+		ns.logger.Info("Notification method failed, trying next",
+			logging.String("method", method.name),
+			logging.Err(err),
+			logging.String("output", string(output)))
+	}
+
+	// Last resort: log to system and try a simple echo to the user's terminal
+	ns.logger.Info("All GUI notification methods failed, trying console notification")
+	
+	// Try to write to the user's terminal sessions
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	
+	// Try to send a wall message to all terminals
+	wallCmd := exec.CommandContext(timeoutCtx, "sudo", "-u", sudoUser, "sh", "-c", 
+		fmt.Sprintf("echo '%s: %s' | wall 2>/dev/null || echo '%s: %s' > /dev/console 2>/dev/null || true", 
+			title, message, title, message))
+	
+	output, err := wallCmd.CombinedOutput()
+	if err == nil {
+		ns.logger.Info("Console notification sent successfully", logging.String("output", string(output)))
+		return nil
+	}
+	
+	ns.logger.Info("Console notification also failed", logging.Err(err))
+	return fmt.Errorf("all notification methods failed")
+}
+
+// findLoggedInUser attempts to find a logged-in user
+func (ns *NotificationService) findLoggedInUser() (*user.User, error) {
+	// Try to find users with active sessions in /run/user/
+	entries, err := os.ReadDir("/run/user")
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if uid, err := strconv.Atoi(entry.Name()); err == nil && uid >= 1000 {
+				if u, err := user.LookupId(entry.Name()); err == nil {
+					return u, nil
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no logged in user found")
 }

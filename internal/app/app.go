@@ -11,7 +11,6 @@ import (
 
 	"parental-control/internal/auth"
 	"parental-control/internal/config"
-	"parental-control/internal/enforcement"
 	"parental-control/internal/logging"
 	"parental-control/internal/server"
 	"parental-control/internal/service"
@@ -31,11 +30,11 @@ func DefaultConfig() Config {
 
 
 	// Convert enforcement config from main config to engine config
-	serviceConfig.EnforcementConfig = convertEnforcementConfig(defaultConfig.Enforcement)
+	serviceConfig.EnforcementConfig = defaultConfig.Enforcement.ToEnforcementConfig()
 	serviceConfig.EnforcementEnabled = defaultConfig.Enforcement.Enabled
 
 	// Convert notification config from main config to service config
-	serviceConfig.NotificationConfig = convertNotificationConfig(defaultConfig.Notifications)
+	serviceConfig.NotificationConfig = defaultConfig.Notifications.ToServiceNotificationConfig()
 	
 
 	return Config{
@@ -397,33 +396,3 @@ func (a *App) setupStaticFileServer(authMiddleware *server.AuthMiddleware) error
 	return nil
 }
 
-// convertEnforcementConfig converts config.EnforcementConfig to enforcement.EnforcementConfig
-func convertEnforcementConfig(src config.EnforcementConfig) enforcement.EnforcementConfig {
-	return enforcement.EnforcementConfig{
-		ProcessPollInterval:    src.ProcessPollInterval,
-		EnableNetworkFiltering: src.EnableNetworkFiltering,
-		MaxConcurrentChecks:    src.MaxConcurrentChecks,
-		CacheTimeout:           src.CacheTimeout,
-		BlockUnknownProcesses:  src.BlockUnknownProcesses,
-		LogAllActivity:         src.LogAllActivity,
-		EnableEmergencyMode:    src.EnableEmergencyMode,
-		EmergencyWhitelist:     src.EmergencyWhitelist,
-	}
-}
-
-// convertNotificationConfig converts config.NotificationConfig to service.NotificationConfig
-func convertNotificationConfig(src config.NotificationConfig) service.NotificationConfig {
-	return service.NotificationConfig{
-		Enabled:                   src.Enabled,
-		AppName:                   src.AppName,
-		AppIcon:                   src.AppIcon,
-		MaxNotificationsPerMinute: src.MaxNotificationsPerMinute,
-		CooldownPeriod:            src.CooldownPeriod,
-		EnableAppBlocking:         src.EnableAppBlocking,
-		EnableWebBlocking:         src.EnableWebBlocking,
-		EnableTimeLimit:           src.EnableTimeLimit,
-		EnableSystemAlerts:        src.EnableSystemAlerts,
-		ShowProcessDetails:        src.ShowProcessDetails,
-		NotificationTimeout:       src.NotificationTimeout,
-	}
-}

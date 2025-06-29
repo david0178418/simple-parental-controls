@@ -177,12 +177,19 @@ func (es *EnforcementService) SyncRules(ctx context.Context) error {
 		}
 	}
 
-	es.logger.Info("Rule synchronization completed",
-		logging.Int("rules_added", rulesAdded),
-		logging.Int("rules_removed", rulesRemoved),
-		logging.Int("rules_skipped", rulesSkipped),
-		logging.Int("total_current", len(currentRules)),
-		logging.Int("total_desired", len(desiredRules)))
+	// Only log at INFO level if there were actual changes
+	if rulesAdded > 0 || rulesRemoved > 0 || rulesSkipped > 0 {
+		es.logger.Info("Rule synchronization completed",
+			logging.Int("rules_added", rulesAdded),
+			logging.Int("rules_removed", rulesRemoved),
+			logging.Int("rules_skipped", rulesSkipped),
+			logging.Int("total_current", len(currentRules)),
+			logging.Int("total_desired", len(desiredRules)))
+	} else {
+		// Use DEBUG level for routine sync with no changes
+		es.logger.Debug("Rule synchronization completed - no changes",
+			logging.Int("total_rules", len(currentRules)))
+	}
 
 	// Also enforce executable rules
 	if err := es.enforceExecutableRules(ctx); err != nil {

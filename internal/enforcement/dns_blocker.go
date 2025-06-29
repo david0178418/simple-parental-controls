@@ -28,6 +28,10 @@ type DNSBlocker struct {
 
 	stats   DNSBlockerStats
 	statsMu sync.Mutex
+
+	// Rate limiting for DNS error logging
+	lastDNSErrorLog time.Time
+	dnsErrorCount   int64
 }
 
 // DNSBlockerConfig holds configuration for the DNSBlocker.
@@ -262,8 +266,36 @@ func (b *DNSBlocker) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	b.statsMu.Lock()
 	b.stats.Errors++
+	b.dnsErrorCount++
+	
+	// Rate limit DNS error logging to avoid spam
+	now := time.Now()
+	shouldLog := false
+	
+	if b.lastDNSErrorLog.IsZero() {
+		// First error, always log
+		shouldLog = true
+	} else if now.Sub(b.lastDNSErrorLog) > 30*time.Second {
+		// Log every 30 seconds if errors continue
+		shouldLog = true
+	} else if b.dnsErrorCount%10 == 0 {
+		// Log every 10th error
+		shouldLog = true
+	}
+	
+	if shouldLog {
+		if b.dnsErrorCount == 1 {
+			b.logger.Error("Failed to forward DNS query to any upstream", logging.Err(err))
+		} else {
+			b.logger.Error("DNS upstream failures continue", 
+				logging.Err(err),
+				logging.Int("total_failures", int(b.dnsErrorCount)),
+				logging.String("duration", now.Sub(b.lastDNSErrorLog).String()))
+		}
+		b.lastDNSErrorLog = now
+	}
 	b.statsMu.Unlock()
-	b.logger.Error("Failed to forward DNS query to any upstream", logging.Err(err))
+	
 	dns.HandleFailed(w, r)
 }
 

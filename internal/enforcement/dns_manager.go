@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"parental-control/internal/logging"
+	"parental-control/internal/privilege"
 )
 
 // DNSManager handles system-level DNS configuration changes via iptables.
@@ -23,6 +24,10 @@ func NewDNSManager(logger logging.Logger) *DNSManager {
 
 // Setup redirects system DNS traffic to the local listener.
 func (m *DNSManager) Setup() error {
+	if !privilege.IsElevated() {
+		return fmt.Errorf("DNS redirection requires elevated privileges")
+	}
+
 	m.logger.Info("Setting up DNS redirection using iptables...")
 
 	rules := [][]string{
@@ -46,6 +51,11 @@ func (m *DNSManager) Setup() error {
 
 // Teardown restores the original DNS settings by removing the iptables rules.
 func (m *DNSManager) Teardown() error {
+	if !privilege.IsElevated() {
+		m.logger.Warn("Attempting to teardown DNS redirection without elevated privileges")
+		return nil
+	}
+
 	m.logger.Info("Restoring original DNS settings by removing iptables rules...")
 
 	rules := [][]string{

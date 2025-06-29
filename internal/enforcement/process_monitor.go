@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"parental-control/internal/privilege"
 )
 
 // ProcessInfo represents information about a running process
@@ -525,6 +527,10 @@ func (lpm *LinuxProcessMonitor) IsProcessRunning(ctx context.Context, pid int) b
 func (lpm *LinuxProcessMonitor) KillProcess(ctx context.Context, pid int, graceful bool) error {
 	if pid <= 0 {
 		return fmt.Errorf("invalid PID: %d", pid)
+	}
+
+	if !privilege.IsElevated() {
+		return fmt.Errorf("process termination requires elevated privileges")
 	}
 
 	// Get process info for safety checks

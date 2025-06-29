@@ -38,6 +38,9 @@ type Config struct {
 
 	// Notification configuration
 	Notifications NotificationConfig `yaml:"notifications" json:"notifications"`
+
+	// Privilege configuration
+	Privilege PrivilegeConfig `yaml:"privilege" json:"privilege"`
 }
 
 // ServiceConfig holds service-specific settings
@@ -234,6 +237,27 @@ type NotificationConfig struct {
 	NotificationTimeout time.Duration `yaml:"notification_timeout" json:"notification_timeout"`
 }
 
+// PrivilegeConfig holds privilege escalation settings
+type PrivilegeConfig struct {
+	// ElevationMethod specifies the preferred elevation method (auto, uac, sudo, pkexec)
+	ElevationMethod string `yaml:"elevation_method" json:"elevation_method"`
+
+	// TimeoutSeconds for privilege elevation requests
+	TimeoutSeconds int `yaml:"timeout_seconds" json:"timeout_seconds"`
+
+	// AllowFallback enables fallback to other elevation methods if preferred fails
+	AllowFallback bool `yaml:"allow_fallback" json:"allow_fallback"`
+
+	// PreferredElevator specifies preferred tool (pkexec, sudo, gksudo, etc.)
+	PreferredElevator string `yaml:"preferred_elevator" json:"preferred_elevator"`
+
+	// RestartOnElevation whether to restart the application with elevated privileges
+	RestartOnElevation bool `yaml:"restart_on_elevation" json:"restart_on_elevation"`
+
+	// SkipElevationCheck bypasses privilege checks (for testing/debugging)
+	SkipElevationCheck bool `yaml:"skip_elevation_check" json:"skip_elevation_check"`
+}
+
 // Default returns a configuration with sensible defaults
 func Default() *Config {
 	return &Config{
@@ -321,6 +345,14 @@ func Default() *Config {
 			EnableSystemAlerts:        false,
 			ShowProcessDetails:        true,
 			NotificationTimeout:       5 * time.Second,
+		},
+		Privilege: PrivilegeConfig{
+			ElevationMethod:     "auto",
+			TimeoutSeconds:      120,
+			AllowFallback:       true,
+			PreferredElevator:   "",
+			RestartOnElevation:  true,
+			SkipElevationCheck:  false,
 		},
 	}
 }
@@ -668,6 +700,34 @@ func applyEnvironmentOverrides(config *Config) error {
 	if val := os.Getenv("PC_NOTIFICATIONS_TIMEOUT"); val != "" {
 		if duration, err := time.ParseDuration(val); err == nil {
 			config.Notifications.NotificationTimeout = duration
+		}
+	}
+
+	// Privilege configuration
+	if val := os.Getenv("PC_PRIVILEGE_ELEVATION_METHOD"); val != "" {
+		config.Privilege.ElevationMethod = val
+	}
+	if val := os.Getenv("PC_PRIVILEGE_TIMEOUT_SECONDS"); val != "" {
+		if timeout, err := strconv.Atoi(val); err == nil {
+			config.Privilege.TimeoutSeconds = timeout
+		}
+	}
+	if val := os.Getenv("PC_PRIVILEGE_ALLOW_FALLBACK"); val != "" {
+		if allowFallback, err := strconv.ParseBool(val); err == nil {
+			config.Privilege.AllowFallback = allowFallback
+		}
+	}
+	if val := os.Getenv("PC_PRIVILEGE_PREFERRED_ELEVATOR"); val != "" {
+		config.Privilege.PreferredElevator = val
+	}
+	if val := os.Getenv("PC_PRIVILEGE_RESTART_ON_ELEVATION"); val != "" {
+		if restart, err := strconv.ParseBool(val); err == nil {
+			config.Privilege.RestartOnElevation = restart
+		}
+	}
+	if val := os.Getenv("PC_PRIVILEGE_SKIP_ELEVATION_CHECK"); val != "" {
+		if skip, err := strconv.ParseBool(val); err == nil {
+			config.Privilege.SkipElevationCheck = skip
 		}
 	}
 

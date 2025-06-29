@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"parental-control/internal/app"
 	"parental-control/internal/config"
 	"parental-control/internal/enforcement"
 	"parental-control/internal/logging"
+	"parental-control/internal/privilege"
 	"parental-control/internal/service"
 )
 
@@ -23,15 +25,10 @@ var (
 )
 
 func main() {
-	if os.Geteuid() != 0 {
-		fmt.Println("This application must be run as root to manage network settings.")
-		fmt.Println("Please try again using 'sudo'.")
-		os.Exit(1)
-	}
-
 	var (
 		showVersion = flag.Bool("version", false, "Show version information")
 		configPath  = flag.String("config", "", "Path to configuration file")
+		noElevate   = flag.Bool("no-elevate", false, "Skip privilege elevation (for testing)")
 	)
 	flag.Parse()
 
@@ -56,6 +53,13 @@ func main() {
 			logging.String("path", *configPath),
 			logging.Err(err))
 		appConfig = config.Default()
+	}
+
+	// Check and request privileges if needed
+	if !*noElevate && !appConfig.Privilege.SkipElevationCheck {
+		if err := ensurePrivileges(&appConfig.Privilege); err != nil {
+			logging.Fatal("Failed to obtain required privileges", logging.Err(err))
+		}
 	}
 
 	// Create and start the main application
@@ -126,4 +130,61 @@ func convertToServiceNotificationConfig(cfg config.NotificationConfig) service.N
 		ShowProcessDetails:        cfg.ShowProcessDetails,
 		NotificationTimeout:       cfg.NotificationTimeout,
 	}
+}
+
+// ensurePrivileges checks if the application has the required privileges and requests elevation if needed
+func ensurePrivileges(privilegeConfig *config.PrivilegeConfig) error {
+	// Convert config to privilege manager config
+	privConfig := &privilege.Config{
+		TimeoutSeconds:     privilegeConfig.TimeoutSeconds,
+		AllowFallback:      privilegeConfig.AllowFallback,
+		PreferredElevator:  privilegeConfig.PreferredElevator,
+		RestartOnElevation: privilegeConfig.RestartOnElevation,
+	}
+	
+	// Set elevation method
+	switch privilegeConfig.ElevationMethod {
+	case "uac":
+		privConfig.Method = privilege.ElevationMethodUAC
+	case "sudo":
+		privConfig.Method = privilege.ElevationMethodSudo
+	case "pkexec":
+		privConfig.Method = privilege.ElevationMethodPkexec
+	default:
+		privConfig.Method = privilege.ElevationMethodAuto
+	}
+	
+	privManager := privilege.NewManager(privConfig)
+
+	if privManager.IsElevated() {
+		logging.Info("Application is running with elevated privileges")
+		return nil
+	}
+
+	if !privManager.CanElevate() {
+		return fmt.Errorf("privilege elevation is not available on this system")
+	}
+
+	logging.Info("Application requires elevated privileges for system enforcement")
+	logging.Info("Requesting privilege elevation...")
+
+	timeout := time.Duration(privilegeConfig.TimeoutSeconds) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	err := privManager.RequestElevation(ctx, "Parental Control Application requires administrator privileges to manage network settings and process monitoring")
+	if err != nil {
+		switch err {
+		case privilege.ErrElevationDenied:
+			return fmt.Errorf("privilege elevation was denied by user - application cannot function without administrator privileges")
+		case privilege.ErrElevationTimeout:
+			return fmt.Errorf("privilege elevation request timed out - try increasing the timeout in configuration")
+		case privilege.ErrNotSupported:
+			return fmt.Errorf("privilege elevation is not supported on this platform")
+		default:
+			return fmt.Errorf("privilege elevation failed: %w", err)
+		}
+	}
+
+	return nil
 }

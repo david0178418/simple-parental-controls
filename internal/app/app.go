@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -345,12 +346,38 @@ func (a *App) setupStaticFileServer(authMiddleware *server.AuthMiddleware) error
 		staticRoot = "./web/build"
 	}
 
+	// Convert to absolute path to ensure it works regardless of working directory
+	if !filepath.IsAbs(staticRoot) {
+		// Get the directory of the current executable
+		execPath, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("failed to get executable path: %w", err)
+		}
+		execDir := filepath.Dir(execPath)
+		
+		// Resolve relative to the executable's parent directory
+		// If executable is in build/, go up one level
+		if filepath.Base(execDir) == "build" {
+			execDir = filepath.Dir(execDir)
+		}
+		
+		staticRoot = filepath.Join(execDir, staticRoot)
+	}
+
 	// Check if static directory exists
 	if _, err := os.Stat(staticRoot); os.IsNotExist(err) {
 		logging.Warn("Static file directory does not exist",
-			logging.String("static_root", staticRoot))
-		// Create a simple filesystem that will return 404 for all files
-		return a.httpServer.SetupStaticFileServer(os.DirFS("."), nil)
+			logging.String("static_root", staticRoot),
+			logging.String("resolved_path", staticRoot))
+		
+		// Try fallback path relative to current working directory
+		fallbackPath := "./web/build"
+		if _, err := os.Stat(fallbackPath); err == nil {
+			logging.Info("Using fallback static directory", logging.String("path", fallbackPath))
+			staticRoot = fallbackPath
+		} else {
+			return fmt.Errorf("static directory not found at %s or %s", staticRoot, fallbackPath)
+		}
 	} else if err != nil {
 		return fmt.Errorf("failed to check static directory: %w", err)
 	}

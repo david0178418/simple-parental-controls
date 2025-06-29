@@ -6,7 +6,6 @@ certs/
 data/
 bin
 *.log
-CLAUDE.md
 cookies.txt
 coverage.out
 coverage.html
